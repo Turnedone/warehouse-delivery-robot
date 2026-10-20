@@ -114,6 +114,9 @@ After stopping the launch (Ctrl+C), the KPI report from the bag:
 ros2 run wdr_tools metrics ~/wdr_bags/demo
 ```
 
+To watch it with windows (Gazebo + RViz with status labels, five orders, a charge stop):
+`bash tools/wsl/demo.sh`.
+
 Useful launch arguments: `sim:=loopback` (Nav2's loopback simulator instead of Gazebo, fast),
 `battery_drain_scale:=15 battery_charge_scale:=20` (see a charge cycle within minutes),
 `operator_auto_confirm_s:=-1` (wait for a real `/wdr/operator_confirm`), `moving_obstacles:=false`.
@@ -136,18 +139,37 @@ within the run. Report from the recorded bag (`ros2 run wdr_tools metrics`):
 | near misses (< 0.35 m lidar range) | 3, closest approach 0.16 m |
 | dock visits | 1: order 3 started at 6 % → docked → charged to 90 % → undocked → delivered |
 
+![Path driven per order](docs/images/run_trajectory.png)
+
+*The path the robot drove in that run (AMCL pose), one colour per order. Order 3 (green) starts
+by driving back to the dock to charge, then delivers shelf_c2 → pack_2. The paths avoid both
+keep-out zones and swing around the moving obstacles' lanes.*
+
+![Battery, speed and mission timeline](docs/images/run_timeline.png)
+
+*The same run over time. The battery drops below 30 % during order 2, so order 3 begins with a
+charge stop (red: driving to the charger, green: charging). The speed trace shows the slow zones
+directly: the flat steps at 0.18 m/s and 0.225 m/s are the 40 % and 50 % limits from the speed
+filter (top speed 0.45 m/s). Plots by `tools/plot_run.py` from the recorded bag.*
+
 Order 3 shows the full low-battery path: `CHECKING_BATTERY → GOING_TO_CHARGE → CHARGING →
 UNDOCKING → TO_PICKUP → … → DONE`. Simulated drain is exaggerated, so the battery reached 0 %
 on the way to the dock; a real threshold would leave a reserve (see
 [04-docking-battery](docs/04-docking-battery.md)).
 
+![RViz during a run, annotated](docs/images/rviz_annotated.png)
+
+*RViz during a run (`rviz:=true`), annotated: map, inflation, lidar marks, keep-out masks, the
+robot with its AMCL particles and plan, and the moving obstacles. Item 14 is a "ghost trail":
+cells the lidar marked as the worker walked past, cleared only when a later beam passes through.*
+
 **Navigation check** (Gazebo, Nav2 goals only): four goals across the warehouse, all reached with
 2–18 cm final error, 40 % and 50 % speed limits applied in the slow zones, no sample inside a
 keep-out zone.
 
-**Tests**: `colcon test` → 54 tests, 0 failures locally (unit tests, generated-file checks, and
-the headless loopback end-to-end suite: reject, cancel, deliver, low battery → dock → charge →
-deliver). CI runs the same; it has not run on GitHub yet (repository not pushed).
+**Tests**: `colcon test` → 56 tests, 0 failures (unit tests, generated-file checks, and the
+headless loopback end-to-end suite: reject, cancel, deliver, low battery → dock → charge →
+deliver), locally and in GitHub Actions.
 
 ## Repository layout
 

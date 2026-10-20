@@ -153,7 +153,23 @@ the component container.
 seen with Nav2's own demo launch in the robot-sim project. The shutdown test allows exit -6/-11
 for the Nav2 container only and still fails if any other process crashes.
 
-### 16. WSL clears /tmp between sessions
+### 16. A paused simulation took Nav2 down
+
+**Symptom.** During a live demo with the Gazebo window open, the robot stopped next to the
+shipping table and every queued order then failed within seconds.
+**Investigation.** The log ended at `lifecycle_manager_navigation: CRITICAL FAILURE: SERVER
+collision_monitor IS DOWN` followed by "Deactivating collision_monitor" and nothing else. A `gdb`
+stack dump of the Nav2 container showed the collision monitor's thread inside
+`tf2_ros::Buffer::canTransform`, sleeping. `gz topic -e -t /stats` showed `paused: true`: the
+simulation had been paused from the Gazebo window.
+**Cause.** With simulated time frozen, a transform wait measured in simulated time never ends.
+The collision monitor stopped answering its bond, the lifecycle manager shut navigation down and
+blocked deactivating the hung node; the mission then failed every order against inactive servers.
+**Status.** Unpausing (`gz service -s /world/warehouse/control ... 'pause: false'`) restarts time
+but not Nav2. Not fixed yet: a supervisor that restarts Nav2 and holds orders while it is down is
+the most useful next improvement.
+
+### 17. WSL clears /tmp between sessions
 
 **Symptom.** A bag recorded a minute earlier did not exist any more.
 **Cause.** In this WSL distribution `/tmp` does not survive the distribution being idle.

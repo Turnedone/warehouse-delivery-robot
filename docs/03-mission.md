@@ -46,6 +46,25 @@ DeliverOrder (Fallback)
 NavigateWithRetry: up to 3 × [ NavigateToPose  |  on failure: clear both costmaps, wait 3 s ]
 ```
 
+```mermaid
+flowchart TD
+    A([DeliverOrder<br/>Fallback]) --> B[Deliver<br/>Sequence]
+    A --> X[ParkLoadInExceptionArea<br/>only if loaded]
+    B --> C{BatteryBelow 30 %?}
+    C -- yes --> D[Dock → WaitForCharge 90 %]
+    C -- no --> E
+    D --> E[LeaveDock: UndockRobot]
+    E --> F[NavigateWithRetry → pick-up]
+    F --> G[WaitForOperator: load]
+    G --> H[NavigateWithRetry → drop-off]
+    H --> I[WaitForOperator: unload]
+    I --> J([DONE])
+    X --> X1[NavigateWithRetry → qa_hold] --> X2([order fails])
+    subgraph NR[NavigateWithRetry, up to 3 attempts]
+        N1[NavigateToPose<br/>Nav2's own tree] -- fails --> N2[clear costmaps, wait 3 s] --> N1
+    end
+```
+
 **Why a behavior tree** and not a state machine: the same subtrees (`Dock`,
 `NavigateWithRetry`) are reused in several places, failure handling is explicit structure
 (Fallback / Retry) instead of transitions sprinkled over states, and adding a step is local.
