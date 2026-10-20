@@ -35,8 +35,7 @@ public:
 //   <WaitForOperator step="load" timeout_s="120" auto_confirm_s="{operator_auto_confirm_s}"/>
 class WaitForOperator : public BT::StatefulActionNode {
 public:
-    WaitForOperator(const std::string& name, const BT::NodeConfig& config)
-        : BT::StatefulActionNode(name, config) {}
+    WaitForOperator(const std::string& name, const BT::NodeConfig& config) : BT::StatefulActionNode(name, config) {}
     static BT::PortsList providedPorts();
     BT::NodeStatus onStart() override;
     BT::NodeStatus onRunning() override;

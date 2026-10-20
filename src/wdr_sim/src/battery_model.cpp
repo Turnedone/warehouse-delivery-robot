@@ -9,7 +9,9 @@ BatteryModel::BatteryModel(const BatteryParams& params, double initial_soc) : pa
     set_soc(initial_soc);
 }
 
-void BatteryModel::set_soc(double soc) { soc_ = std::clamp(soc, 0.0, 1.0); }
+void BatteryModel::set_soc(double soc) {
+    soc_ = std::clamp(soc, 0.0, 1.0);
+}
 
 double BatteryModel::voltage() const {
     return params_.empty_voltage + (params_.full_voltage - params_.empty_voltage) * soc_;

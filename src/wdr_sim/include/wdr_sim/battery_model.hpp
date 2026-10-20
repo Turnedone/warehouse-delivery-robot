@@ -4,13 +4,13 @@
 namespace wdr_sim {
 
 struct BatteryParams {
-    double capacity_wh = 26.0;           // Create 3 battery: 26 Wh, 4S Li-ion
-    double idle_power_w = 6.0;           // computer, lidar, base electronics
-    double drive_power_w_per_mps = 25.0; // extra draw per m/s of speed
-    double charge_power_w = 30.0;        // dock charging power
-    double drain_scale = 1.0;            // >1 makes the battery run down faster (demos and tests)
-    double charge_scale = 1.0;           // >1 makes charging faster
-    double trickle_current_a = 0.6;      // float charge on a full battery while on the charger
+    double capacity_wh = 26.0;            // Create 3 battery: 26 Wh, 4S Li-ion
+    double idle_power_w = 6.0;            // computer, lidar, base electronics
+    double drive_power_w_per_mps = 25.0;  // extra draw per m/s of speed
+    double charge_power_w = 30.0;         // dock charging power
+    double drain_scale = 1.0;             // >1 makes the battery run down faster (demos and tests)
+    double charge_scale = 1.0;            // >1 makes charging faster
+    double trickle_current_a = 0.6;       // float charge on a full battery while on the charger
     double empty_voltage = 12.0;
     double full_voltage = 16.8;
 };

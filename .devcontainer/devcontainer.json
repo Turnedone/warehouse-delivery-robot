@@ -1,0 +1,33 @@
+{
+  // VS Code / GitHub Codespaces dev container: the "deps" stage of docker/Dockerfile with the
+  // repository mounted at /ws/src-repo. Build inside with:
+  //   colcon build --base-paths /ws/src-repo/src --symlink-install
+  "name": "warehouse-delivery-robot (ROS 2 Jazzy)",
+  "build": {
+    "dockerfile": "../docker/Dockerfile",
+    "context": "..",
+    "target": "deps"
+  },
+  "workspaceMount": "source=${localWorkspaceFolder},target=/ws/src-repo,type=bind",
+  "workspaceFolder": "/ws/src-repo",
+  "runArgs": ["--network=host", "--ipc=host"],
+  "containerEnv": {
+    // Forward the host display only if you want Gazebo/RViz windows; everything runs headless without it.
+    "DISPLAY": "${localEnv:DISPLAY}",
+    "ROS_DOMAIN_ID": "42"
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-vscode.cpptools",
+        "ms-python.python",
+        "xaver.clang-format",
+        "redhat.vscode-xml",
+        "redhat.vscode-yaml"
+      ],
+      "settings": {
+        "C_Cpp.default.compileCommands": "/ws/build/compile_commands.json"
+      }
+    }
+  }
+}

@@ -2,9 +2,9 @@
 
 #include <stdexcept>
 
+#include "wdr_interfaces/action/deliver_order.hpp"
 #include "wdr_mission/mission_state.hpp"
 #include "wdr_mission/station_registry.hpp"
-#include "wdr_interfaces/action/deliver_order.hpp"
 
 using wdr_mission::StationRegistry;
 using Result = wdr_interfaces::action::DeliverOrder::Result;

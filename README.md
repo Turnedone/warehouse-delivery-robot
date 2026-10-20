@@ -1,0 +1,144 @@
+# warehouse-delivery-robot
+
+[![CI](https://github.com/Turnedone/warehouse-delivery-robot/actions/workflows/ci.yml/badge.svg)](https://github.com/Turnedone/warehouse-delivery-robot/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+An autonomous warehouse delivery robot built the way a warehouse-automation team builds one:
+on **ROS 2 Jazzy**, **Nav2** and **Gazebo Harmonic**, with the industry tools rather than
+from-scratch algorithms. A TurtleBot 4 takes delivery orders from a queue, drives from pick-up
+shelves to packing stations through a warehouse with keep-out and slow zones and a moving
+forklift, waits for an operator to load and unload it, and goes back to its charger when the
+battery runs low.
+
+![The generated warehouse](docs/images/layout.png)
+
+*The warehouse as the robot's stack sees it, rendered from the generated files
+(`tools/render_layout.py`): occupancy map, keep-out zones (red, with the safety margin the mask
+adds), slow zones, pick-up shelves (blue), drop-off stations (purple), the exception area, the
+charging dock and the paths of the three moving obstacles.*
+
+The companion project [robot-sim](https://github.com/Turnedone/robot-sim) implements the
+underlying algorithms (kinematics, lidar, mapping, A*, pure pursuit, MCL, SLAM) from scratch;
+this one is about integrating, configuring, testing and operating the standard stack.
+
+## What it does
+
+| Area | What | Tools | Docs |
+|---|---|---|---|
+| Simulation | 24 × 16 m warehouse, TurtleBot 4, moving forklift/cart/worker; world, map, masks and stations generated from one layout file | Gazebo Harmonic, ros_gz, xacro, Nav2 loopback simulator | [01-simulation](docs/01-simulation.md) |
+| Navigation | Localization, planning, control, keep-out zones, slow zones, collision stop zone | Nav2: AMCL, Smac 2D, MPPI, costmap filters, collision monitor, lifecycle + composition | [02-navigation](docs/02-navigation.md) |
+| Mission | `DeliverOrder` action, priority queue, cancel, delivery behavior tree with retries and failure handling | rclcpp_action, BehaviorTree.CPP v4 on Nav2's BT engine, custom BT plugins | [03-mission](docs/03-mission.md) |
+| Docking & battery | Simulated battery, charge before an order when low, return to the charger when idle | opennav_docking, sensor_msgs/BatteryState | [04-docking-battery](docs/04-docking-battery.md) |
+| Dynamic obstacles | Obstacles only the lidar knows about; avoid, wait, replan, retry | costmap obstacle layers, MPPI, collision monitor | [05-dynamic-obstacles](docs/05-dynamic-obstacles.md) |
+| Observability | Every order state change as a message; rosbag2/MCAP recording; KPI report from a bag; RViz config | rosbag2, MCAP, RViz, Groot2 | [06-observability](docs/06-observability.md) |
+| Engineering | colcon workspace, unit + launch_testing integration tests, CI, Docker dev container, clang-format/tidy | colcon, gtest, pytest, launch_testing, GitHub Actions, Docker | [07-engineering](docs/07-engineering.md) |
+
+Problems found along the way and how each was tracked down: [engineering log](docs/engineering-log.md).
+Interview-style questions with answers: [self-test](docs/self-test.md).
+
+## Architecture
+
+```mermaid
+flowchart LR
+    subgraph clients[Clients]
+        CLI[submit_orders CLI]
+        OP[operator<br/>/wdr/operator_confirm]
+    end
+    subgraph mission[wdr_mission]
+        TM[task_manager<br/>DeliverOrder action server<br/>priority queue]
+        BT[delivery behavior tree<br/>Nav2 BT engine]
+        TM --> BT
+    end
+    subgraph nav2[Nav2 - one component container]
+        BTN[bt_navigator]
+        PL[planner_server<br/>Smac 2D]
+        CT[controller_server<br/>MPPI]
+        VS[velocity_smoother]
+        CM[collision_monitor]
+        DK[docking_server<br/>opennav_docking]
+        AM[AMCL + map_server]
+        FI[keep-out + speed<br/>filter servers]
+    end
+    subgraph sim[Simulation]
+        GZ[Gazebo Harmonic<br/>TurtleBot 4, warehouse]
+        BAT[battery_sim]
+        OBS[obstacle_mover]
+    end
+    BAG[(rosbag2 MCAP)] --> MET[metrics report]
+
+    CLI -- DeliverOrder goal --> TM
+    OP --> TM
+    BT -- NavigateToPose --> BTN
+    BT -- DockRobot / UndockRobot --> DK
+    BTN --> PL & CT
+    CT -- cmd_vel_nav --> VS -- cmd_vel_smoothed --> CM -- cmd_vel --> GZ
+    DK -- cmd_vel --> GZ
+    GZ -- scan, odom, tf --> AM & CT & CM
+    FI --> PL & CT
+    BAT -- battery_state --> TM & DK
+    OBS -- set_pose --> GZ
+    TM -- order_events --> BAG
+```
+
+## Quick start (WSL2 Ubuntu 24.04 or Ubuntu 24.04)
+
+Needs ROS 2 Jazzy with Gazebo Harmonic (`ros-jazzy-ros-gz`) and Nav2; `rosdep` installs the rest:
+
+```bash
+rosdep install --from-paths src --ignore-src -y --rosdistro jazzy
+bash tools/wsl/build.sh                       # builds into ~/wdr_ws
+source ~/wdr_ws/install/setup.bash
+```
+
+Run the warehouse (headless; add `rviz:=true` or `gui:=true` for windows):
+
+```bash
+ros2 launch wdr_bringup warehouse.launch.py record:=true bag_dir:=$HOME/wdr_bags/demo
+```
+
+In a second terminal, submit orders and watch them complete:
+
+```bash
+ros2 run wdr_tools submit_orders shelf_b2:pack_1 shelf_a1:shipping shelf_c2:pack_2
+```
+
+Force a low-battery dock (or start with `initial_battery:=0.25`):
+
+```bash
+ros2 service call /battery_sim/set_level wdr_interfaces/srv/SetBatteryLevel "{percentage: 0.2}"
+```
+
+After stopping the launch (Ctrl+C), the KPI report from the bag:
+
+```bash
+ros2 run wdr_tools metrics ~/wdr_bags/demo
+```
+
+Useful launch arguments: `sim:=loopback` (Nav2's loopback simulator instead of Gazebo, fast),
+`battery_drain_scale:=15 battery_charge_scale:=20` (see a charge cycle within minutes),
+`operator_auto_confirm_s:=-1` (wait for a real `/wdr/operator_confirm`), `moving_obstacles:=false`.
+
+Tests: `bash tools/wsl/build.sh --test`. Docker: `docker build -f docker/Dockerfile -t wdr .`.
+
+## Results
+
+RESULTS_PLACEHOLDER
+
+## Repository layout
+
+```
+src/wdr_interfaces   DeliverOrder action, OrderEvent, OperatorConfirm, SetBatteryLevel
+src/wdr_mission      task manager, BT plugin nodes, delivery tree (behavior_trees/), unit tests
+src/wdr_sim          battery simulator, obstacle mover, unit tests
+src/wdr_bringup      launch/, config/ (Nav2, layout, bridge), generated maps/ and worlds/, urdf/, rviz/, tests
+src/wdr_tools        submit_orders CLI, bag metrics, tests
+tools/               WSL build/stop scripts, lint script
+docker/, .devcontainer/, .github/workflows/
+docs/                one document per subsystem, engineering log, self-test
+```
+
+## How it was built
+
+Designed and built with an AI coding assistant (Claude), in the same WSL2 setup as robot-sim;
+every result above comes from runs in that environment, and the engineering log records the
+problems as they were found. MIT licensed.

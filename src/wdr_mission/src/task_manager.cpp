@@ -127,7 +127,6 @@ public:
         blackboard_->set<std::string>("pickup", "");
         blackboard_->set<std::string>("dropoff", "");
 
-
         cb_group_ = create_callback_group(rclcpp::CallbackGroupType::Reentrant);
         events_pub_ = create_publisher<OrderEvent>("/wdr/order_events", rclcpp::QoS(100).reliable());
         battery_sub_ = create_subscription<sensor_msgs::msg::BatteryState>(
@@ -139,9 +138,8 @@ public:
             "/odom", rclcpp::SensorDataQoS(), [this](const nav_msgs::msg::Odometry& m) { on_odom(m); });
         confirm_srv_ = create_service<OperatorConfirm>(
             "/wdr/operator_confirm",
-            [this](const std::shared_ptr<OperatorConfirm::Request> req, std::shared_ptr<OperatorConfirm::Response> res) {
-                on_confirm(*req, *res);
-            },
+            [this](const std::shared_ptr<OperatorConfirm::Request> req,
+                   std::shared_ptr<OperatorConfirm::Response> res) { on_confirm(*req, *res); },
             rclcpp::ServicesQoS(), cb_group_);
         action_server_ = rclcpp_action::create_server<DeliverOrder>(
             this, "/deliver_order",
@@ -229,7 +227,8 @@ private:
             queue_->push(o, gh);
             RCLCPP_INFO(get_logger(), "queued %s: %s -> %s (priority %u, position %zu)", o.id.c_str(), o.pickup.c_str(),
                         o.dropoff.c_str(), o.priority, queue_->position(o.id));
-            publish_event(o, OrderEvent::QUEUED, state::kQueued, 0, "position " + std::to_string(queue_->position(o.id)));
+            publish_event(o, OrderEvent::QUEUED, state::kQueued, 0,
+                          "position " + std::to_string(queue_->position(o.id)));
         }
         queue_cv_.notify_all();
     }
@@ -319,11 +318,13 @@ private:
                 check.active = check.pending.get()->success;
                 check.pending = {};
             } else if (check.client->service_is_ready()) {
-                check.pending = check.client->async_send_request(std::make_shared<std_srvs::srv::Trigger::Request>()).future.share();
+                check.pending = check.client->async_send_request(std::make_shared<std_srvs::srv::Trigger::Request>())
+                                    .future.share();
             }
         }
         if (!battery_->has_data()) missing += " battery_state";
-        if (!tf_buffer_->canTransform("map", "base_link", tf2::TimePointZero)) missing += " localization(map->base_link)";
+        if (!tf_buffer_->canTransform("map", "base_link", tf2::TimePointZero))
+            missing += " localization(map->base_link)";
         if (!missing.empty()) {
             RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 10000, "waiting for:%s", missing.c_str());
             return false;

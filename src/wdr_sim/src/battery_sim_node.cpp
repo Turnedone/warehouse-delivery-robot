@@ -44,8 +44,7 @@ public:
 
         pub_ = create_publisher<sensor_msgs::msg::BatteryState>("battery_state", rclcpp::SystemDefaultsQoS());
         odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
-            "odom", rclcpp::SensorDataQoS(),
-            [this](const nav_msgs::msg::Odometry& msg) {
+            "odom", rclcpp::SensorDataQoS(), [this](const nav_msgs::msg::Odometry& msg) {
                 speed_ = std::hypot(msg.twist.twist.linear.x, msg.twist.twist.linear.y);
             });
         set_srv_ = create_service<wdr_interfaces::srv::SetBatteryLevel>(
@@ -68,8 +67,7 @@ private:
     bool on_charger() {
         try {
             const auto t = tf_buffer_->lookupTransform(global_frame_, base_frame_, tf2::TimePointZero);
-            return std::hypot(t.transform.translation.x - dock_x_, t.transform.translation.y - dock_y_) <=
-                   dock_radius_;
+            return std::hypot(t.transform.translation.x - dock_x_, t.transform.translation.y - dock_y_) <= dock_radius_;
         } catch (const tf2::TransformException&) {
             return false;  // no localization yet: not on the charger
         }

@@ -131,7 +131,9 @@ BT::NodeStatus BatteryBelow::tick() {
 
 // ---------------------------------------------------------------- ReportState
 
-BT::PortsList ReportState::providedPorts() { return {BT::InputPort<std::string>("state", "Mission state name")}; }
+BT::PortsList ReportState::providedPorts() {
+    return {BT::InputPort<std::string>("state", "Mission state name")};
+}
 
 BT::NodeStatus ReportState::tick() {
     const auto s = getInput<std::string>("state");

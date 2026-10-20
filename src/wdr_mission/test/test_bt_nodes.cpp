@@ -47,8 +47,7 @@ protected:
     }
 
     BT::NodeStatus run(const std::string& body, std::chrono::milliseconds limit = std::chrono::seconds(5)) {
-        const std::string xml =
-            R"(<root BTCPP_format="4"><BehaviorTree ID="T">)" + body + R"(</BehaviorTree></root>)";
+        const std::string xml = R"(<root BTCPP_format="4"><BehaviorTree ID="T">)" + body + R"(</BehaviorTree></root>)";
         auto tree = factory.createTreeFromText(xml, bb);
         const auto deadline = std::chrono::steady_clock::now() + limit;
         BT::NodeStatus status = tree.tickOnce();

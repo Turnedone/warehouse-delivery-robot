@@ -6,7 +6,9 @@ using wdr_mission::Order;
 using wdr_mission::OrderQueue;
 
 namespace {
-Order order(const std::string& id, uint8_t priority = 0) { return Order{id, "shelf_a1", "pack_1", priority, 0.0}; }
+Order order(const std::string& id, uint8_t priority = 0) {
+    return Order{id, "shelf_a1", "pack_1", priority, 0.0};
+}
 }  // namespace
 
 TEST(OrderQueue, FirstComeFirstServed) {

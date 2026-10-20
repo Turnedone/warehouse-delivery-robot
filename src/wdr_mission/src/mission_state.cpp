@@ -6,7 +6,9 @@ namespace wdr_mission {
 
 using Result = wdr_interfaces::action::DeliverOrder::Result;
 
-bool is_phase_state(const std::string& s) { return s != state::kNavRetry && s != state::kToException; }
+bool is_phase_state(const std::string& s) {
+    return s != state::kNavRetry && s != state::kToException;
+}
 
 uint16_t error_code_for_phase(const std::string& phase) {
     if (phase == state::kGoingToCharge || phase == state::kCharging || phase == state::kUndocking ||
