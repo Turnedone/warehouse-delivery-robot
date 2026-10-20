@@ -60,5 +60,6 @@ TEST(MissionState, FailurePhaseMapsToResultCode) {
 TEST(MissionState, RetriesDoNotChangeThePhase) {
     EXPECT_FALSE(wdr_mission::is_phase_state("NAV_RETRY"));
     EXPECT_FALSE(wdr_mission::is_phase_state("TO_EXCEPTION_AREA"));
+    EXPECT_FALSE(wdr_mission::is_phase_state("WAITING_FOR_NAV2"));
     EXPECT_TRUE(wdr_mission::is_phase_state("TO_DROPOFF"));
 }

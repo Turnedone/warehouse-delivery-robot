@@ -40,9 +40,12 @@ robot fails at step 4. See the [engineering log](engineering-log.md), entry 6.
 
 ## When the robot charges
 
-- **Before every order** (`EnsureCharged`): below 30 % it docks and charges to 90 % first. The
-  threshold is checked per order, not continuously: a robot carrying goods finishes the delivery
-  (30 % is far more than one trip needs).
+- **Before every order** (`EnsureCharged`): it docks and charges to 90 % first if the battery is
+  below 30 %, **or** if it would not cover this order: robot → pick-up → drop-off → dock (straight
+  line × 1.4 for detours, at 0.3 m/s average, with the battery's own power model and the operator
+  waits) with 15 % left. At real drain an order costs 2–4 %; with the demo's 15× drain about half
+  a battery, so the robot charges far more often in demos. Checked per order, not continuously: a
+  robot carrying goods finishes the delivery.
 - **When idle** for 10 s: back to the charger (`ReturnToDock`), interrupted by the next order.
 
 Both use the same `Dock` subtree, which skips docking when the `docked` flag is set and retries
@@ -58,6 +61,6 @@ integration test `test_4_low_battery_docks_and_charges_first` checks the same se
 
 - Detect the dock with a camera or AprilTag (`use_external_detection_pose: true`) instead of
   trusting the map pose: AMCL is accurate to a few centimetres, contacts need better.
-- Plan charging from predicted energy per order instead of one threshold, and stagger charging
+- Learn the energy per metre from recorded runs instead of a fixed model, and stagger charging
   across a fleet.
 - Read docking state from the base (the Create 3 publishes `dock_status`) instead of charge current.

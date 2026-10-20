@@ -17,6 +17,7 @@
   <depend>sensor_msgs</depend>
   <depend>tf2_ros</depend>
   <depend>std_srvs</depend>
+  <depend>nav2_msgs</depend>
   <depend>wdr_interfaces</depend>
   <depend>yaml-cpp</depend>
   <exec_depend>opennav_docking_bt</exec_depend>

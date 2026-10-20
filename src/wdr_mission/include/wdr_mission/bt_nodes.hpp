@@ -8,6 +8,8 @@
 //   operator      std::shared_ptr<OperatorPanel>
 //   battery       std::shared_ptr<BatteryMonitor>
 //   reporter      std::shared_ptr<MissionReporter>
+//   energy        std::shared_ptr<EnergyModel>
+//   robot_pose    std::shared_ptr<RobotPose>
 #pragma once
 
 #include <memory>
@@ -69,6 +71,17 @@ private:
 class BatteryBelow : public BT::ConditionNode {
 public:
     BatteryBelow(const std::string& name, const BT::NodeConfig& config) : BT::ConditionNode(name, config) {}
+    static BT::PortsList providedPorts();
+    BT::NodeStatus tick() override;
+};
+
+// SUCCESS when the battery covers the rest of this order and the drive back to the dock
+// with `reserve` (0..1) left over: robot -> pick-up (unless already loaded) -> drop-off -> dock,
+// estimated with the EnergyModel, plus the two operator waits. FAILURE means "charge first".
+//   <EnoughBatteryForOrder reserve="{battery_reserve}"/>
+class EnoughBatteryForOrder : public BT::ConditionNode {
+public:
+    EnoughBatteryForOrder(const std::string& name, const BT::NodeConfig& config) : BT::ConditionNode(name, config) {}
     static BT::PortsList providedPorts();
     BT::NodeStatus tick() override;
 };

@@ -5,12 +5,12 @@
   Nodes from Nav2's BT plugin libraries: NavigateToPose, ClearEntireCostmap, Wait,
   DockRobot, UndockRobot (opennav_docking_bt).
   Nodes from wdr_mission_bt_nodes: GetStationPose, WaitForOperator, WaitForCharge, BatteryBelow,
-  ReportState.
+  EnoughBatteryForOrder, ReportState.
   Built-in BehaviorTree.CPP nodes: Sequence, Fallback, RetryUntilSuccessful, ForceFailure,
   ForceSuccess, Inverter, AlwaysFailure, Script, ScriptCondition.
 
   Blackboard inputs (set by the task manager per order): pickup, dropoff, exception_station,
-  dock_id, low_battery, resume_battery, nav_attempts, operator_timeout_s,
+  dock_id, low_battery, resume_battery, battery_reserve, nav_attempts, operator_timeout_s,
   operator_auto_confirm_s, charge_timeout_s, docked, loaded.
 -->
 <root BTCPP_format="4" main_tree_to_execute="DeliverOrder">
@@ -22,13 +22,20 @@
         <SubTree ID="EnsureCharged" _autoremap="true"/>
         <SubTree ID="LeaveDock" _autoremap="true"/>
 
-        <ReportState state="TO_PICKUP"/>
-        <GetStationPose station="{pickup}" pose="{pickup_pose}"/>
-        <SubTree ID="NavigateWithRetry" goal="{pickup_pose}" _autoremap="true"/>
-        <ReportState state="WAITING_FOR_LOAD"/>
-        <WaitForOperator step="load" timeout_s="{operator_timeout_s}"
-                         auto_confirm_s="{operator_auto_confirm_s}"/>
-        <Script code="loaded:=true"/>
+        <!-- Skipped when already loaded: an order interrupted after loading (Nav2 went down
+             and the task manager put it on hold) resumes at the drop-off. -->
+        <Fallback name="PickUp">
+          <ScriptCondition code="loaded"/>
+          <Sequence>
+            <ReportState state="TO_PICKUP"/>
+            <GetStationPose station="{pickup}" pose="{pickup_pose}"/>
+            <SubTree ID="NavigateWithRetry" goal="{pickup_pose}" _autoremap="true"/>
+            <ReportState state="WAITING_FOR_LOAD"/>
+            <WaitForOperator step="load" timeout_s="{operator_timeout_s}"
+                             auto_confirm_s="{operator_auto_confirm_s}"/>
+            <Script code="loaded:=true"/>
+          </Sequence>
+        </Fallback>
 
         <ReportState state="TO_DROPOFF"/>
         <GetStationPose station="{dropoff}" pose="{dropoff_pose}"/>
@@ -53,12 +60,17 @@
     </Fallback>
   </BehaviorTree>
 
-  <!-- Before taking an order: if the battery is low, dock and charge up to resume_battery. -->
+  <!-- Before taking an order: charge up to resume_battery first if the battery is below
+       low_battery, or if it would not cover this order and the drive back to the dock with
+       battery_reserve left over. -->
   <BehaviorTree ID="EnsureCharged">
     <Fallback>
-      <Inverter>
-        <BatteryBelow threshold="{low_battery}"/>
-      </Inverter>
+      <Sequence name="BatteryIsEnough">
+        <Inverter>
+          <BatteryBelow threshold="{low_battery}"/>
+        </Inverter>
+        <EnoughBatteryForOrder reserve="{battery_reserve}"/>
+      </Sequence>
       <Sequence>
         <ReportState state="GOING_TO_CHARGE"/>
         <SubTree ID="Dock" _autoremap="true"/>

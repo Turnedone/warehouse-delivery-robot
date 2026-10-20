@@ -6,6 +6,7 @@ and the docking server, task manager, battery simulator) and checks, in order:
   2. a queued order can be canceled before it starts
   3. an order is delivered end to end (undock -> pick-up -> load -> drop-off -> unload)
   4. with a low battery the robot docks, charges, undocks and then delivers
+  5. if Nav2 goes down mid-delivery, the order is held and resumes once Nav2 is back
 """
 
 import os
@@ -20,6 +21,7 @@ import rclpy
 from action_msgs.msg import GoalStatus
 from ament_index_python.packages import get_package_share_directory
 from launch.launch_description_sources import PythonLaunchDescriptionSource
+from nav2_msgs.srv import ManageLifecycleNodes
 from rclpy.action import ActionClient
 from wdr_interfaces.action import DeliverOrder
 from wdr_interfaces.msg import OrderEvent
@@ -138,6 +140,32 @@ class TestDeliveryLoopback(unittest.TestCase):
         charged = [e.battery_percentage for e in self.events
                    if e.order_id == 'T4' and e.state == 'UNDOCKING']
         self.assertGreaterEqual(charged[-1], 0.89)
+
+
+    def test_5_order_survives_nav2_going_down(self):
+        """Nav2 is paused mid-delivery: the order is held, Nav2 is brought back, the order resumes."""
+        manage = self.node.create_client(ManageLifecycleNodes,
+                                         '/lifecycle_manager_navigation/manage_nodes')
+        self.assertTrue(manage.wait_for_service(timeout_sec=10.0))
+        handle = self.send('shelf_c1', 'pack_2', order_id='T5')
+        self.assertTrue(handle.accepted)
+        self.assertTrue(self.spin_until(lambda: 'TO_DROPOFF' in self.states_of('T5'), 300.0),
+                        'never reached TO_DROPOFF')
+        self.spin_until(lambda: False, 3.0)  # a few seconds into the drop-off leg
+
+        pause = manage.call_async(ManageLifecycleNodes.Request(
+            command=ManageLifecycleNodes.Request.PAUSE))
+        self.assertTrue(self.spin_until(pause.done, 30.0))
+
+        res = self.result_of(handle)
+        self.assertEqual(res.status, GoalStatus.STATUS_SUCCEEDED, res.result.error_msg)
+        states = self.states_of('T5')
+        self.assertIn('WAITING_FOR_NAV2', states)
+        hold = states.index('WAITING_FOR_NAV2')
+        # Resumed at the drop-off: the robot was already loaded, so no second trip to the shelf
+        self.assertNotIn('TO_PICKUP', states[hold:])
+        self.assertIn('TO_DROPOFF', states[hold:])
+        self.assertIn('NAV2_RECOVERED', [e.state for e in self.events if not e.order_id])
 
 
 @launch_testing.post_shutdown_test()

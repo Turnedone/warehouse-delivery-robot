@@ -165,11 +165,33 @@ simulation had been paused from the Gazebo window.
 **Cause.** With simulated time frozen, a transform wait measured in simulated time never ends.
 The collision monitor stopped answering its bond, the lifecycle manager shut navigation down and
 blocked deactivating the hung node; the mission then failed every order against inactive servers.
-**Status.** Unpausing (`gz service -s /world/warehouse/control ... 'pause: false'`) restarts time
-but not Nav2. Not fixed yet: a supervisor that restarts Nav2 and holds orders while it is down is
-the most useful next improvement.
+**Fix.** The task manager now supervises Nav2 for the whole run (1 Hz): every lifecycle manager
+must report active and simulated time must be moving. If not, the running order is halted and put
+back at the front of the queue (`WAITING_FOR_NAV2`) instead of failing, and once time moves again
+the lifecycle managers are asked to RESUME, then STARTUP. The order continues from where it was:
+the pick-up leg is skipped when the robot is already loaded. A new integration test pauses Nav2
+mid-delivery and checks that the order is held, Nav2 comes back and the order is delivered.
+Unpausing Gazebo is still needed (`gz service -s /world/warehouse/control --reqtype
+gz.msgs.WorldControl --reptype gz.msgs.Boolean --req 'pause: false'`): the supervisor cannot know
+whether someone paused it on purpose.
 
-### 17. WSL clears /tmp between sessions
+**Follow-up bug, found by that test.** The first version still failed the order. With Nav2
+paused, every navigation goal is rejected at once, so the tree used up its three retries in well
+under a second, before the 1 Hz health check had noticed anything. Now a failing order first asks
+the lifecycle managers directly; if Nav2 is down, the order is held instead of failed.
+
+### 17. Charging by threshold let the battery run flat
+
+**Symptom.** In the recorded Gazebo run the battery reached 0 % on the way to the dock: order 2
+started at 33 %, above the 30 % threshold, and needed more than that (with the demo's 15× drain).
+**Fix.** Before each order the tree also checks `EnoughBatteryForOrder`: robot → pick-up →
+drop-off → dock, straight-line length × 1.4 for detours, at an average 0.3 m/s with the battery's
+own power model and the operator waits, and charges first unless 15 % would be left after the
+drive back. The 30 % threshold stays as a floor. The estimate is a plain function, unit tested
+against hand-computed values (the first expected values written into the test were estimates,
+off by 2×; computing them by hand corrected the test, not the code).
+
+### 18. WSL clears /tmp between sessions
 
 **Symptom.** A bag recorded a minute earlier did not exist any more.
 **Cause.** In this WSL distribution `/tmp` does not survive the distribution being idle.

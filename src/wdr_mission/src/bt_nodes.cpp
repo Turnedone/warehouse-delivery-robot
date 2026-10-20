@@ -1,8 +1,11 @@
 #include "wdr_mission/bt_nodes.hpp"
 
+#include <algorithm>
 #include <cmath>
+#include <vector>
 
 #include "behaviortree_cpp/bt_factory.h"
+#include "wdr_mission/energy.hpp"
 #include "wdr_mission/mission_context.hpp"
 #include "wdr_mission/station_registry.hpp"
 
@@ -129,6 +132,41 @@ BT::NodeStatus BatteryBelow::tick() {
     return battery->percentage() < threshold ? BT::NodeStatus::SUCCESS : BT::NodeStatus::FAILURE;
 }
 
+// ---------------------------------------------------------------- EnoughBatteryForOrder
+
+BT::PortsList EnoughBatteryForOrder::providedPorts() {
+    return {BT::InputPort<double>("reserve", 0.15, "Charge to keep after the order and the drive back")};
+}
+
+BT::NodeStatus EnoughBatteryForOrder::tick() {
+    const double reserve = getInput<double>("reserve").value_or(0.15);
+    const auto battery = from_blackboard<BatteryMonitor>(*this, "battery");
+    const auto stations = from_blackboard<StationRegistry>(*this, "stations");
+    const auto model = from_blackboard<EnergyModel>(*this, "energy");
+    const auto& bb = *config().blackboard;
+    if (!battery->has_data()) return BT::NodeStatus::FAILURE;
+
+    double rx = 0.0;
+    double ry = 0.0;
+    std::vector<Point2D> route;
+    if (from_blackboard<RobotPose>(*this, "robot_pose")->get(rx, ry)) route.push_back({rx, ry});
+    const bool loaded = bb.get<bool>("loaded");
+    for (const auto& key : {std::string("pickup"), std::string("dropoff"), std::string("dock_id")}) {
+        if (key == "pickup" && loaded) continue;
+        const auto st = stations->find(bb.get<std::string>(key));
+        if (st) route.push_back({st->x, st->y});
+    }
+    const double wait_s = 2.0 * std::max(0.0, bb.get<double>("operator_auto_confirm_s"));
+    const double route_m = route_length_m(*model, route);
+    const double needed = energy_fraction(*model, route_m, wait_s);
+    const double have = battery->percentage();
+    if (have - needed >= reserve) return BT::NodeStatus::SUCCESS;
+    RCLCPP_WARN(ros_node(*this)->get_logger(),
+                "battery %.0f%% is not enough for this order: ~%.0f m needs ~%.0f%%, plus %.0f%% reserve", have * 100.0,
+                route_m, needed * 100.0, reserve * 100.0);
+    return BT::NodeStatus::FAILURE;
+}
+
 // ---------------------------------------------------------------- ReportState
 
 BT::PortsList ReportState::providedPorts() {
@@ -149,5 +187,6 @@ BT_REGISTER_NODES(factory) {
     factory.registerNodeType<wdr_mission::WaitForOperator>("WaitForOperator");
     factory.registerNodeType<wdr_mission::WaitForCharge>("WaitForCharge");
     factory.registerNodeType<wdr_mission::BatteryBelow>("BatteryBelow");
+    factory.registerNodeType<wdr_mission::EnoughBatteryForOrder>("EnoughBatteryForOrder");
     factory.registerNodeType<wdr_mission::ReportState>("ReportState");
 }

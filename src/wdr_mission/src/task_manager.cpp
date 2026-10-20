@@ -10,6 +10,13 @@
 // and one mission thread that pops orders and ticks the tree. Goals are accepted with
 // ACCEPT_AND_DEFER: a queued order stays in the ACCEPTED state until the mission thread
 // starts it, so clients can tell "queued" from "executing" from the goal status alone.
+//
+// A 1 Hz health check supervises Nav2 for the whole run: every lifecycle manager must report
+// active and, in simulation, simulated time must be moving. When either fails, the running
+// order is halted and put back at the front of the queue (WAITING_FOR_NAV2) instead of failing,
+// and once the simulation is running the lifecycle managers are asked to bring Nav2 back
+// (RESUME, then STARTUP). The order then continues from where it was (a loaded robot goes
+// straight to the drop-off).
 
 #include <atomic>
 #include <chrono>
@@ -25,6 +32,7 @@
 
 #include "behaviortree_cpp/bt_factory.h"
 #include "nav2_behavior_tree/behavior_tree_engine.hpp"
+#include "nav2_msgs/srv/manage_lifecycle_nodes.hpp"
 #include "nav_msgs/msg/odometry.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
@@ -35,6 +43,7 @@
 #include "wdr_interfaces/action/deliver_order.hpp"
 #include "wdr_interfaces/msg/order_event.hpp"
 #include "wdr_interfaces/srv/operator_confirm.hpp"
+#include "wdr_mission/energy.hpp"
 #include "wdr_mission/mission_context.hpp"
 #include "wdr_mission/mission_state.hpp"
 #include "wdr_mission/order_queue.hpp"
@@ -46,6 +55,7 @@ using DeliverOrder = wdr_interfaces::action::DeliverOrder;
 using GoalHandle = rclcpp_action::ServerGoalHandle<DeliverOrder>;
 using OrderEvent = wdr_interfaces::msg::OrderEvent;
 using OperatorConfirm = wdr_interfaces::srv::OperatorConfirm;
+using ManageNodes = nav2_msgs::srv::ManageLifecycleNodes;
 using namespace std::chrono_literals;
 
 // Nav2's engine, plus access to its factory so several trees can be created from one file.
@@ -79,6 +89,15 @@ public:
         start_docked_ = declare_parameter("start_docked", true);
         idle_dock_after_s_ = declare_parameter("idle_dock_after_s", 10.0);
         groot_port_ = declare_parameter("groot_port", 0);
+        nav2_recover_after_s_ = declare_parameter("nav2_recover_after_s", 5.0);
+        battery_reserve_ = declare_parameter("battery_reserve", 0.15);
+        energy_->capacity_wh = declare_parameter("energy.capacity_wh", energy_->capacity_wh);
+        energy_->idle_power_w = declare_parameter("energy.idle_power_w", energy_->idle_power_w);
+        energy_->drive_power_w_per_mps =
+            declare_parameter("energy.drive_power_w_per_mps", energy_->drive_power_w_per_mps);
+        energy_->cruise_speed_mps = declare_parameter("energy.cruise_speed_mps", energy_->cruise_speed_mps);
+        energy_->detour_factor = declare_parameter("energy.detour_factor", energy_->detour_factor);
+        energy_->scale = declare_parameter("energy.scale", energy_->scale);
         nav2_managers_ = declare_parameter(
             "nav2_lifecycle_managers",
             std::vector<std::string>{"lifecycle_manager_localization", "lifecycle_manager_navigation"});
@@ -112,6 +131,9 @@ public:
         blackboard_->set<std::shared_ptr<OperatorPanel>>("operator", operator_);
         blackboard_->set<std::shared_ptr<BatteryMonitor>>("battery", battery_);
         blackboard_->set<std::shared_ptr<MissionReporter>>("reporter", reporter_);
+        blackboard_->set<std::shared_ptr<EnergyModel>>("energy", energy_);
+        blackboard_->set<std::shared_ptr<RobotPose>>("robot_pose", robot_pose_);
+        blackboard_->set<double>("battery_reserve", battery_reserve_);
         blackboard_->set<double>("low_battery", low_battery_);
         blackboard_->set<double>("resume_battery", resume_battery_);
         blackboard_->set<int>("nav_attempts", static_cast<int>(nav_attempts_));
@@ -150,9 +172,17 @@ public:
             [this](const std::shared_ptr<GoalHandle>& gh) { on_accepted(gh); }, rcl_action_server_get_default_options(),
             cb_group_);
 
+        health_group_ = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
         for (const auto& name : nav2_managers_) {
-            nav2_checks_.push_back({name, create_client<std_srvs::srv::Trigger>("/" + name + "/is_active"), {}, false});
+            auto check = std::make_shared<Nav2Check>();
+            check->name = name;
+            check->is_active =
+                create_client<std_srvs::srv::Trigger>("/" + name + "/is_active", rclcpp::ServicesQoS(), health_group_);
+            check->manage =
+                create_client<ManageNodes>("/" + name + "/manage_nodes", rclcpp::ServicesQoS(), health_group_);
+            nav2_checks_.push_back(check);
         }
+        health_timer_ = create_wall_timer(1s, [this] { health_tick(); }, health_group_);
         tf_buffer_ = std::make_unique<tf2_ros::Buffer>(get_clock());
         tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
 
@@ -310,18 +340,7 @@ private:
     bool robot_ready() {
         if (robot_ready_) return true;
         std::string missing;
-        for (auto& check : nav2_checks_) {
-            if (check.active) continue;
-            missing += " " + check.name;
-            if (check.pending.valid()) {
-                if (check.pending.wait_for(0s) != std::future_status::ready) continue;
-                check.active = check.pending.get()->success;
-                check.pending = {};
-            } else if (check.client->service_is_ready()) {
-                check.pending = check.client->async_send_request(std::make_shared<std_srvs::srv::Trigger::Request>())
-                                    .future.share();
-            }
-        }
+        if (!nav2_ok_) missing += " nav2";
         if (!battery_->has_data()) missing += " battery_state";
         if (!tf_buffer_->canTransform("map", "base_link", tf2::TimePointZero))
             missing += " localization(map->base_link)";
@@ -337,7 +356,7 @@ private:
     void mission_loop() {
         while (rclcpp::ok() && !stop_) {
             cancel_queued_orders();
-            if (!robot_ready() || !ensure_trees()) {
+            if (!robot_ready() || !nav2_ok_ || !ensure_trees()) {
                 std::this_thread::sleep_for(1s);
                 continue;
             }
@@ -392,12 +411,13 @@ private:
             publish_event(entry.order, OrderEvent::CANCELED, state::kQueued, result->error_code, result->error_msg);
             return;
         }
-        gh->execute();  // ACCEPTED -> EXECUTING
+        if (!gh->is_executing()) gh->execute();  // ACCEPTED -> EXECUTING (already executing if resumed)
         {
             std::lock_guard<std::mutex> lock(mutex_);
             current_ = Current{entry.order, gh, "", "", 0, 0.0};
             operator_->clear();
         }
+        update_robot_pose();
         blackboard_->set<std::string>("order_id", entry.order.id);
         blackboard_->set<std::string>("pickup", entry.order.pickup);
         blackboard_->set<std::string>("dropoff", entry.order.dropoff);
@@ -419,9 +439,11 @@ private:
                             publish_feedback_locked();
                         }
                         cancel_queued_orders();  // a queued order canceled now must not wait for this one
+                        update_robot_pose();
                     }
                 },
-                [&] { return stop_ || !rclcpp::ok() || gh->is_canceling(); }, std::chrono::milliseconds(loop_ms_));
+                [&] { return stop_ || !rclcpp::ok() || gh->is_canceling() || !nav2_ok_; },
+                std::chrono::milliseconds(loop_ms_));
             engine_->haltAllActions(mission_tree_);  // cancels any Nav2/docking goal still running
         } catch (const std::exception& e) {
             error = e.what();
@@ -437,6 +459,25 @@ private:
         result->duration_s = now().seconds() - start_s;
         result->distance_m = done.distance_m;
         result->retries = done.retries;
+
+        // Interrupted because Nav2 went down (not canceled by the client, not shutting down):
+        // hold the order at the front of the queue; it resumes once Nav2 is back. A failure is
+        // checked too: with Nav2 down every goal is rejected at once, so the tree can run out of
+        // retries before the 1 Hz health check has noticed. Ask Nav2 directly before failing.
+        const bool interrupted = status == nav2_behavior_tree::BtStatus::CANCELED && !nav2_ok_;
+        const bool failed_while_down =
+            status == nav2_behavior_tree::BtStatus::FAILED && error.empty() && !nav2_active_now();
+        if ((interrupted || failed_while_down) && !gh->is_canceling() && !stop_ && rclcpp::ok()) {
+            nav2_ok_ = false;
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                queue_->restore(entry);
+            }
+            publish_event(done.order, OrderEvent::STATE, state::kWaitingForNav2, 0,
+                          "interrupted during " + done.phase + "; held until Nav2 is back");
+            RCLCPP_WARN(get_logger(), "%s on hold during %s: Nav2 is down", done.order.id.c_str(), done.phase.c_str());
+            return;
+        }
 
         if (status == nav2_behavior_tree::BtStatus::SUCCEEDED) {
             result->success = true;
@@ -479,7 +520,7 @@ private:
                 &dock_tree_, [this] { cancel_queued_orders(); },
                 [this] {
                     std::lock_guard<std::mutex> lock(mutex_);
-                    return stop_ || !rclcpp::ok() || !queue_->empty();
+                    return stop_ || !rclcpp::ok() || !queue_->empty() || !nav2_ok_;
                 },
                 std::chrono::milliseconds(loop_ms_));
             engine_->haltAllActions(dock_tree_);
@@ -490,6 +531,107 @@ private:
         } catch (const std::exception& e) {
             RCLCPP_ERROR(get_logger(), "return-to-dock tree error: %s", e.what());
             last_dock_failure_ = now();
+        }
+    }
+
+    void update_robot_pose() {
+        try {
+            const auto t = tf_buffer_->lookupTransform("map", "base_link", tf2::TimePointZero);
+            robot_pose_->update(t.transform.translation.x, t.transform.translation.y);
+        } catch (const tf2::TransformException& e) {
+            // keep the last known pose
+            RCLCPP_DEBUG(get_logger(), "robot pose not available: %s", e.what());
+        }
+    }
+
+    // ------------------------------------------------------------ Nav2 supervision
+
+    // Asks every lifecycle manager right now (from the mission thread; the replies are handled
+    // by the executor). False if any says inactive or does not answer within 2 s.
+    bool nav2_active_now() {
+        for (const auto& c : nav2_checks_) {
+            if (!c->is_active->service_is_ready()) return false;
+            auto future = c->is_active->async_send_request(std::make_shared<std_srvs::srv::Trigger::Request>());
+            if (future.wait_for(2s) != std::future_status::ready || !future.get()->success) {
+                c->active = false;
+                return false;
+            }
+        }
+        return true;
+    }
+
+    // Runs at 1 Hz on its own callback group. Sets nav2_ok_, which gates new orders and halts
+    // the running one, and tries to bring Nav2 back when it is down.
+    void health_tick() {
+        const auto wall = std::chrono::steady_clock::now();
+
+        // Simulated time must move: a paused Gazebo freezes every wait measured in sim time
+        // (one such wait once hung the collision monitor and took Nav2 down).
+        bool sim_stalled = false;
+        if (get_parameter("use_sim_time").as_bool()) {
+            const rclcpp::Time sim = now();
+            const bool no_clock_yet = sim.nanoseconds() == 0;
+            if (!no_clock_yet && (last_sim_.nanoseconds() == 0 || (sim - last_sim_).seconds() > 0.05)) {
+                last_sim_ = sim;
+                last_sim_moved_ = wall;
+            }
+            sim_stalled = no_clock_yet || wall - last_sim_moved_ > 3s;
+        }
+
+        // Each lifecycle manager must say "active". One that does not answer within 3 s counts
+        // as down: a manager blocked deactivating a hung node cannot answer either.
+        bool all_active = true;
+        for (auto& c : nav2_checks_) {
+            if (c->in_flight && wall - c->sent > 3s) {
+                c->in_flight = false;
+                c->active = false;
+            }
+            if (!c->in_flight && c->is_active->service_is_ready()) {
+                c->in_flight = true;
+                c->sent = wall;
+                c->is_active->async_send_request(std::make_shared<std_srvs::srv::Trigger::Request>(),
+                                                 [c](rclcpp::Client<std_srvs::srv::Trigger>::SharedFuture f) {
+                                                     c->active = f.get()->success;
+                                                     c->in_flight = false;
+                                                 });
+            }
+            all_active = all_active && c->active;
+        }
+
+        const bool ok = all_active && !sim_stalled;
+        if (ok != nav2_ok_) {
+            if (ok) {
+                RCLCPP_INFO(get_logger(), "Nav2 is active%s", nav2_ever_ok_ ? " again: resuming orders" : "");
+                if (nav2_ever_ok_) publish_event(Order{}, OrderEvent::STATE, "NAV2_RECOVERED", 0, "");
+                nav2_ever_ok_ = true;
+            } else if (nav2_ever_ok_) {
+                std::string why = sim_stalled ? "simulation time is not moving (Gazebo paused?)" : "inactive:";
+                for (const auto& c : nav2_checks_) {
+                    if (!c->active) why += " " + c->name;
+                }
+                RCLCPP_ERROR(get_logger(), "Nav2 is down, holding orders: %s", why.c_str());
+                publish_event(Order{}, OrderEvent::STATE, state::kWaitingForNav2, 0, why);
+                down_since_ = wall;
+            }
+            nav2_ok_ = ok;
+        }
+
+        // Recovery: only once Nav2 has been up before (startup is the lifecycle managers' own
+        // job), only while simulated time moves, and at most every 10 s. RESUME brings back paused
+        // nodes; STARTUP configures and activates nodes a manager has reset after a failure.
+        if (ok || !nav2_ever_ok_ || sim_stalled) return;
+        if (wall - down_since_ < std::chrono::duration<double>(nav2_recover_after_s_)) return;
+        if (wall - last_recovery_ < 10s) return;
+        last_recovery_ = wall;
+        const uint8_t command =
+            (recovery_attempts_++ % 2 == 0) ? ManageNodes::Request::RESUME : ManageNodes::Request::STARTUP;
+        for (const auto& c : nav2_checks_) {
+            if (c->active || !c->manage->service_is_ready()) continue;
+            auto req = std::make_shared<ManageNodes::Request>();
+            req->command = command;
+            RCLCPP_WARN(get_logger(), "asking %s to %s", c->name.c_str(),
+                        command == ManageNodes::Request::RESUME ? "resume" : "start up");
+            c->manage->async_send_request(req, [](rclcpp::Client<ManageNodes>::SharedFuture) {});
         }
     }
 
@@ -532,6 +674,9 @@ private:
     std::shared_ptr<StationRegistry> stations_;
     std::shared_ptr<OperatorPanel> operator_ = std::make_shared<OperatorPanel>();
     std::shared_ptr<BatteryMonitor> battery_ = std::make_shared<BatteryMonitor>();
+    std::shared_ptr<EnergyModel> energy_ = std::make_shared<EnergyModel>();
+    std::shared_ptr<RobotPose> robot_pose_ = std::make_shared<RobotPose>();
+    double battery_reserve_;
     std::shared_ptr<Reporter> reporter_;
     rclcpp::Node::SharedPtr client_node_;
     std::unique_ptr<MissionEngine> engine_;
@@ -542,12 +687,23 @@ private:
     bool robot_ready_ = false;  // mission thread only
     struct Nav2Check {
         std::string name;
-        rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr client;
-        std::shared_future<std_srvs::srv::Trigger::Response::SharedPtr> pending;
-        bool active;
+        rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr is_active;
+        rclcpp::Client<ManageNodes>::SharedPtr manage;
+        std::atomic<bool> active{false};
+        std::atomic<bool> in_flight{false};
+        std::chrono::steady_clock::time_point sent;
     };
     std::vector<std::string> nav2_managers_;
-    std::vector<Nav2Check> nav2_checks_;  // mission thread only
+    double nav2_recover_after_s_;
+    // health check (health_group_ only), except nav2_ok_ which the mission thread reads
+    rclcpp::CallbackGroup::SharedPtr health_group_;
+    rclcpp::TimerBase::SharedPtr health_timer_;
+    std::vector<std::shared_ptr<Nav2Check>> nav2_checks_;
+    std::atomic<bool> nav2_ok_{false};
+    bool nav2_ever_ok_ = false;
+    rclcpp::Time last_sim_{0, 0, RCL_ROS_TIME};
+    std::chrono::steady_clock::time_point last_sim_moved_, down_since_, last_recovery_;
+    unsigned recovery_attempts_ = 0;
     std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
     std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
 

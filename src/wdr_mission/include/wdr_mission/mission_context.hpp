@@ -50,6 +50,29 @@ private:
     std::atomic<bool> has_data_{false};
 };
 
+// Latest robot position in the map frame (from TF, updated by the task manager).
+class RobotPose {
+public:
+    void update(double x, double y) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        x_ = x;
+        y_ = y;
+        valid_ = true;
+    }
+    bool get(double& x, double& y) const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        x = x_;
+        y = y_;
+        return valid_;
+    }
+
+private:
+    mutable std::mutex mutex_;
+    double x_ = 0.0;
+    double y_ = 0.0;
+    bool valid_ = false;
+};
+
 // Receives mission state changes from the tree's ReportState nodes.
 class MissionReporter {
 public:

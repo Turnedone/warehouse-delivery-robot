@@ -27,8 +27,8 @@ this one is about integrating, configuring, testing and operating the standard s
 |---|---|---|---|
 | Simulation | 24 × 16 m warehouse, TurtleBot 4, moving forklift/cart/worker; world, map, masks and stations generated from one layout file | Gazebo Harmonic, ros_gz, xacro, Nav2 loopback simulator | [01-simulation](docs/01-simulation.md) |
 | Navigation | Localization, planning, control, keep-out zones, slow zones, collision stop zone | Nav2: AMCL, Smac 2D, MPPI, costmap filters, collision monitor, lifecycle + composition | [02-navigation](docs/02-navigation.md) |
-| Mission | `DeliverOrder` action, priority queue, cancel, delivery behavior tree with retries and failure handling | rclcpp_action, BehaviorTree.CPP v4 on Nav2's BT engine, custom BT plugins | [03-mission](docs/03-mission.md) |
-| Docking & battery | Simulated battery, charge before an order when low, return to the charger when idle | opennav_docking, sensor_msgs/BatteryState | [04-docking-battery](docs/04-docking-battery.md) |
+| Mission | `DeliverOrder` action, priority queue, cancel, delivery behavior tree with retries and failure handling, Nav2 supervision (orders held and resumed if Nav2 goes down) | rclcpp_action, BehaviorTree.CPP v4 on Nav2's BT engine, custom BT plugins | [03-mission](docs/03-mission.md) |
+| Docking & battery | Simulated battery; charge first when low or when the order would not leave a reserve; return to the charger when idle | opennav_docking, sensor_msgs/BatteryState | [04-docking-battery](docs/04-docking-battery.md) |
 | Dynamic obstacles | Obstacles only the lidar knows about; avoid, wait, replan, retry | costmap obstacle layers, MPPI, collision monitor | [05-dynamic-obstacles](docs/05-dynamic-obstacles.md) |
 | Observability | Every order state change as a message; rosbag2/MCAP recording; KPI report from a bag; RViz config | rosbag2, MCAP, RViz, Groot2 | [06-observability](docs/06-observability.md) |
 | Engineering | colcon workspace, unit + launch_testing integration tests, CI, Docker dev container, clang-format/tidy | colcon, gtest, pytest, launch_testing, GitHub Actions, Docker | [07-engineering](docs/07-engineering.md) |

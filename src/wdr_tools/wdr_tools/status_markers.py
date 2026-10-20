@@ -34,6 +34,7 @@ ACTIVITY = {
     'TO_EXCEPTION_AREA': 'order failed: parking the load at qa_hold',
     'DONE': 'order done',
     'RETURNING_TO_DOCK': 'idle: returning to the charger',
+    'WAITING_FOR_NAV2': 'navigation is down: order on hold until it is back',
 }
 
 

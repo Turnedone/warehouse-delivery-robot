@@ -18,6 +18,14 @@ task_manager:
     queue_capacity: 20
     low_battery: 0.30                # below this, charge before starting an order
     resume_battery: 0.90             # charge up to this before taking orders again
+    battery_reserve: 0.15            # also charge first if the order + drive back would leave less
+    energy:                          # estimate of what an order costs (same model as battery_sim)
+      capacity_wh: 26.0
+      idle_power_w: 6.0
+      drive_power_w_per_mps: 25.0
+      cruise_speed_mps: 0.30         # average incl. slow zones, turns and waiting for obstacles
+      detour_factor: 1.4             # driven path / straight line
+      scale: 1.0                     # set by the launch file to battery_sim's drain_scale
     charge_timeout_s: 3600.0
     nav_attempts: 3                  # NavigateToPose attempts per leg (Nav2 recovers inside each)
     operator_timeout_s: 120.0        # fail the order if nobody loads/unloads the robot in time
@@ -29,3 +37,4 @@ task_manager:
     groot_port: 0                    # > 0: publish the tree to Groot2 on this port
     # Orders wait until these Nav2 lifecycle managers report active (their is_active service)
     nav2_lifecycle_managers: [lifecycle_manager_localization, lifecycle_manager_navigation]
+    nav2_recover_after_s: 5.0        # Nav2 down this long (and sim time moving): ask it to come back

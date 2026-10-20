@@ -11,6 +11,7 @@
 #include "behaviortree_cpp/bt_factory.h"
 #include "rclcpp/rclcpp.hpp"
 #include "wdr_mission/bt_nodes.hpp"
+#include "wdr_mission/energy.hpp"
 #include "wdr_mission/mission_context.hpp"
 #include "wdr_mission/station_registry.hpp"
 
@@ -35,15 +36,25 @@ protected:
         factory.registerNodeType<WaitForCharge>("WaitForCharge");
         factory.registerNodeType<ReportState>("ReportState");
         factory.registerNodeType<BatteryBelow>("BatteryBelow");
+        factory.registerNodeType<EnoughBatteryForOrder>("EnoughBatteryForOrder");
         node = std::make_shared<rclcpp::Node>("bt_nodes_test");
         bb = BT::Blackboard::create();
         bb->set<rclcpp::Node::SharedPtr>("node", node);
         bb->set<std::shared_ptr<StationRegistry>>(
             "stations", std::make_shared<StationRegistry>(StationRegistry::parse(
-                            "stations:\n  shelf_a1: {type: pickup, x: 6.0, y: 11.2, yaw: 1.5708}\n")));
+                            "stations:\n  shelf_a1: {type: pickup, x: 6.0, y: 11.2, yaw: 1.5708}\n"
+                            "  pack_1: {type: dropoff, x: 22.0, y: 12.5, yaw: 0.0}\n"
+                            "  home_dock: {type: dock, x: 0.75, y: 1.5, yaw: 3.14159}\n")));
         bb->set<std::shared_ptr<OperatorPanel>>("operator", panel);
         bb->set<std::shared_ptr<BatteryMonitor>>("battery", battery);
         bb->set<std::shared_ptr<MissionReporter>>("reporter", reporter);
+        bb->set<std::shared_ptr<EnergyModel>>("energy", energy);
+        bb->set<std::shared_ptr<RobotPose>>("robot_pose", pose);
+        bb->set<bool>("loaded", false);
+        bb->set<std::string>("pickup", "shelf_a1");
+        bb->set<std::string>("dropoff", "pack_1");
+        bb->set<std::string>("dock_id", "home_dock");
+        bb->set<double>("operator_auto_confirm_s", 3.0);
     }
 
     BT::NodeStatus run(const std::string& body, std::chrono::milliseconds limit = std::chrono::seconds(5)) {
@@ -65,6 +76,8 @@ protected:
     std::shared_ptr<OperatorPanel> panel = std::make_shared<OperatorPanel>();
     std::shared_ptr<BatteryMonitor> battery = std::make_shared<BatteryMonitor>();
     std::shared_ptr<RecordingReporter> reporter = std::make_shared<RecordingReporter>();
+    std::shared_ptr<EnergyModel> energy = std::make_shared<EnergyModel>();
+    std::shared_ptr<RobotPose> pose = std::make_shared<RobotPose>();
 };
 
 }  // namespace
@@ -111,6 +124,18 @@ TEST_F(BtNodesTest, BatteryBelowTreatsMissingDataAsLow) {
     EXPECT_EQ(run(R"(<BatteryBelow threshold="0.3"/>)"), BT::NodeStatus::FAILURE);
     battery->update(0.2, false);
     EXPECT_EQ(run(R"(<BatteryBelow threshold="0.3"/>)"), BT::NodeStatus::SUCCESS);
+}
+
+TEST_F(BtNodesTest, EnoughBatteryForOrderUsesTheTripEstimate) {
+    // On the dock: dock -> shelf_a1 -> pack_1 -> dock is 51 m straight, 71 m with detours.
+    pose->update(0.75, 1.5);
+    energy->scale = 15.0;  // the demo's drain: the trip costs ~52 % of the battery
+    battery->update(0.80, false);
+    EXPECT_EQ(run(R"(<EnoughBatteryForOrder reserve="0.15"/>)"), BT::NodeStatus::SUCCESS);
+    battery->update(0.60, false);  // well above the 30 % threshold, but not enough for this trip
+    EXPECT_EQ(run(R"(<EnoughBatteryForOrder reserve="0.15"/>)"), BT::NodeStatus::FAILURE);
+    energy->scale = 1.0;  // at real drain the same trip costs ~3.5 %
+    EXPECT_EQ(run(R"(<EnoughBatteryForOrder reserve="0.15"/>)"), BT::NodeStatus::SUCCESS);
 }
 
 TEST_F(BtNodesTest, ReportStateCallsTheReporter) {

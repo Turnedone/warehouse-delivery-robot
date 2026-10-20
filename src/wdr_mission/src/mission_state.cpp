@@ -7,7 +7,7 @@ namespace wdr_mission {
 using Result = wdr_interfaces::action::DeliverOrder::Result;
 
 bool is_phase_state(const std::string& s) {
-    return s != state::kNavRetry && s != state::kToException;
+    return s != state::kNavRetry && s != state::kToException && s != state::kWaitingForNav2;
 }
 
 uint16_t error_code_for_phase(const std::string& phase) {

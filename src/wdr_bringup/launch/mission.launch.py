@@ -30,6 +30,8 @@ def launch_setup(context):
                  'stations_file': os.path.join(bringup, 'config', 'stations.yaml'),
                  'behavior_tree': os.path.join(mission, 'behavior_trees', 'deliver_order.xml'),
                  'operator_auto_confirm_s': arg('operator_auto_confirm_s'),
+                 # the order energy estimate must know how fast the simulated battery drains
+                 'energy.scale': arg('battery_drain_scale'),
              }]),
         Node(package='wdr_sim', executable='battery_sim', name='battery_sim', output='screen',
              parameters=[{'use_sim_time': use_sim_time,

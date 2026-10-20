@@ -29,16 +29,21 @@ the map.
   [engineering log](engineering-log.md), entry 11, for what happens without that.
 - When idle for 10 s, runs a second tree that drives back to the charger; it is halted as soon
   as an order arrives.
+- **Supervises Nav2** at 1 Hz for the whole run: all lifecycle managers active and, in simulation,
+  simulated time moving. If Nav2 goes down mid-order, the order is halted and put back at the front
+  of the queue (`WAITING_FOR_NAV2`) rather than failed; the lifecycle managers are asked to RESUME,
+  then STARTUP; the order then resumes (a loaded robot goes straight to the drop-off). A failing
+  order also double-checks Nav2 first, since with Nav2 down every goal fails within milliseconds.
 
 ## The behavior tree (`wdr_mission/behavior_trees/deliver_order.xml`)
 
 ```
 DeliverOrder (Fallback)
 ├─ Deliver (Sequence)
-│   ├─ EnsureCharged: battery ≥ 30 %?  else Dock → wait until 90 %
+│   ├─ EnsureCharged: battery ≥ 30 % and enough for this trip + 15 %?  else Dock → wait until 90 %
 │   ├─ LeaveDock: if docked, UndockRobot
-│   ├─ GetStationPose(pickup) → NavigateWithRetry
-│   ├─ WaitForOperator(load)            → loaded := true
+│   ├─ PickUp (skipped if already loaded):
+│   │     GetStationPose(pickup) → NavigateWithRetry → WaitForOperator(load) → loaded := true
 │   ├─ GetStationPose(dropoff) → NavigateWithRetry
 │   └─ WaitForOperator(unload)          → loaded := false
 └─ ParkLoadInExceptionArea (only if loaded): navigate to qa_hold, then fail the order
@@ -50,7 +55,7 @@ NavigateWithRetry: up to 3 × [ NavigateToPose  |  on failure: clear both costma
 flowchart TD
     A([DeliverOrder<br/>Fallback]) --> B[Deliver<br/>Sequence]
     A --> X[ParkLoadInExceptionArea<br/>only if loaded]
-    B --> C{BatteryBelow 30 %?}
+    B --> C{below 30 % or not enough<br/>for this trip + 15 %?}
     C -- yes --> D[Dock → WaitForCharge 90 %]
     C -- no --> E
     D --> E[LeaveDock: UndockRobot]
@@ -78,6 +83,7 @@ It is also what Nav2 itself uses, so the mission layer runs on **Nav2's BT engin
 | `GetStationPose` | sync action | station name → `PoseStamped` goal |
 | `WaitForOperator` | stateful action | waits for a confirmation; a simulated operator confirms after `operator_auto_confirm_s`; fails after `timeout_s` |
 | `BatteryBelow` | condition | battery below threshold, or no reading yet |
+| `EnoughBatteryForOrder` | condition | battery covers robot → pick-up → drop-off → dock with a reserve left (energy model) |
 | `WaitForCharge` | stateful action | waits on the charger until the target charge |
 | `ReportState` | sync action | tells the task manager the mission state (feedback, events, error codes) |
 

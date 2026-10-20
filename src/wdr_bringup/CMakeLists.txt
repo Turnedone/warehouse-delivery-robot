@@ -15,7 +15,7 @@ if(BUILD_TESTING)
   # End-to-end mission tests against Nav2's loopback simulator (headless, no Gazebo):
   # bring up Nav2 + the task manager, submit orders, check they are delivered.
   find_package(launch_testing_ament_cmake REQUIRED)
-  add_launch_test(test/test_delivery_loopback.py TIMEOUT 600)
+  add_launch_test(test/test_delivery_loopback.py TIMEOUT 1200)
 
   # The same end-to-end check in Gazebo. Off by default (needs a GPU-capable renderer and
   # several minutes); enable with -DWDR_GAZEBO_TESTS=ON.

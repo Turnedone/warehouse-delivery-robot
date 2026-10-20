@@ -141,6 +141,22 @@ charging stops. [04-docking-battery](04-docking-battery.md)
 model now reports a trickle current on the charger. [engineering log](engineering-log.md) #6
 </details>
 
+<details><summary>19a. How does the robot decide to charge before an order?</summary>
+
+Below 30 %, or when an estimate of the trip (robot → pick-up → drop-off → dock, straight line × 1.4,
+power model, operator waits) would leave less than 15 %. The threshold alone let the battery hit 0 %.
+[04-docking-battery](04-docking-battery.md)
+</details>
+
+<details><summary>19b. What happens if Nav2 dies in the middle of a delivery?</summary>
+
+The task manager's 1 Hz supervisor sees a lifecycle manager inactive (or sim time frozen), halts the
+tree, puts the order back at the front of the queue as WAITING_FOR_NAV2, asks the managers to RESUME
+then STARTUP, and resumes the order; a loaded robot skips the pick-up. A failing order double-checks
+Nav2 first, because with Nav2 down all goals fail before the supervisor's next tick.
+[engineering log](engineering-log.md) #16
+</details>
+
 <details><summary>19. What would you change for a real dock?</summary>
 
 Detect the dock (AprilTag / camera, `use_external_detection_pose`), read the base's dock status

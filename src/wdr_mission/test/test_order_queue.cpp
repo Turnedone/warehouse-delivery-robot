@@ -57,6 +57,18 @@ TEST(OrderQueue, RemoveIfTakesOutCanceledOrders) {
     EXPECT_EQ(q.position("c"), 2u);
 }
 
+TEST(OrderQueue, RestoredOrderGoesBackToItsPlace) {
+    OrderQueue<int> q(2);
+    q.push(order("first"), 1);
+    q.push(order("second"), 2);
+    auto interrupted = q.pop();  // "first" starts, then gets interrupted
+    q.push(order("third"), 3);   // queue is full again
+    q.restore(*interrupted);     // still allowed: the order was already accepted
+    EXPECT_EQ(q.size(), 3u);
+    EXPECT_EQ(q.position("first"), 1u);
+    EXPECT_EQ(q.position("third"), 3u);
+}
+
 TEST(OrderQueue, HandleTravelsWithTheOrder) {
     OrderQueue<std::string> q(10);
     q.push(order("a"), "handle-a");

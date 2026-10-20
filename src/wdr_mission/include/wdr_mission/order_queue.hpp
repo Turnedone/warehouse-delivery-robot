@@ -37,11 +37,15 @@ public:
     bool push(Order order, Handle handle) {
         if (entries_.size() >= capacity_) return false;
         entries_.push_back({std::move(order), std::move(handle), next_seq_++});
-        std::stable_sort(entries_.begin(), entries_.end(), [](const Entry& a, const Entry& b) {
-            if (a.order.priority != b.order.priority) return a.order.priority > b.order.priority;
-            return a.seq < b.seq;
-        });
+        sort();
         return true;
+    }
+
+    // Puts a popped entry back where it was (its original arrival number), for an order that
+    // was interrupted before it could finish. Ignores the capacity: the order was already accepted.
+    void restore(Entry entry) {
+        entries_.push_back(std::move(entry));
+        sort();
     }
 
     std::optional<Entry> pop() {
@@ -81,6 +85,13 @@ public:
     std::size_t capacity() const { return capacity_; }
 
 private:
+    void sort() {
+        std::stable_sort(entries_.begin(), entries_.end(), [](const Entry& a, const Entry& b) {
+            if (a.order.priority != b.order.priority) return a.order.priority > b.order.priority;
+            return a.seq < b.seq;
+        });
+    }
+
     std::size_t capacity_;
     std::vector<Entry> entries_;
     uint64_t next_seq_ = 0;

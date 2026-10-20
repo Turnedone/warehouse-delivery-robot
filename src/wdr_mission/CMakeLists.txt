@@ -19,11 +19,12 @@ find_package(nav_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(std_srvs REQUIRED)
+find_package(nav2_msgs REQUIRED)
 find_package(wdr_interfaces REQUIRED)
 find_package(yaml-cpp REQUIRED)
 
 # Order queue, station registry, state -> error code mapping (no ROS graph needed)
-add_library(wdr_mission_core SHARED src/station_registry.cpp src/mission_state.cpp)
+add_library(wdr_mission_core SHARED src/station_registry.cpp src/mission_state.cpp src/energy.cpp)
 target_include_directories(wdr_mission_core PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>)
@@ -38,7 +39,7 @@ target_link_libraries(wdr_mission_bt_nodes PUBLIC wdr_mission_core behaviortree_
 add_executable(task_manager src/task_manager.cpp)
 target_link_libraries(task_manager wdr_mission_core rclcpp::rclcpp rclcpp_action::rclcpp_action tf2_ros::tf2_ros
   behaviortree_cpp::behaviortree_cpp ${nav_msgs_TARGETS} ${sensor_msgs_TARGETS} ${std_srvs_TARGETS}
-  ${wdr_interfaces_TARGETS})
+  ${nav2_msgs_TARGETS} ${wdr_interfaces_TARGETS})
 # nav2_behavior_tree exports no CMake targets in Jazzy, only the classic variables
 ament_target_dependencies(task_manager nav2_behavior_tree)
 
@@ -52,6 +53,8 @@ if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
   ament_add_gtest(test_order_queue test/test_order_queue.cpp)
   target_link_libraries(test_order_queue wdr_mission_core)
+  ament_add_gtest(test_energy test/test_energy.cpp)
+  target_link_libraries(test_energy wdr_mission_core)
   ament_add_gtest(test_station_registry test/test_station_registry.cpp)
   target_link_libraries(test_station_registry wdr_mission_core)
   # Compiles the BT nodes into the test directly instead of loading the plugin
