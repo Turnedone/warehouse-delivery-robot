@@ -120,7 +120,13 @@ private:
 
 int main(int argc, char** argv) {
     rclcpp::init(argc, argv);
-    rclcpp::spin(std::make_shared<wdr_sim::BatterySimNode>());
+    int code = 0;
+    try {
+        rclcpp::spin(std::make_shared<wdr_sim::BatterySimNode>());
+    } catch (const std::exception& e) {
+        RCLCPP_FATAL(rclcpp::get_logger("battery_sim"), "%s", e.what());
+        code = 1;
+    }
     rclcpp::shutdown();
-    return 0;
+    return code;
 }

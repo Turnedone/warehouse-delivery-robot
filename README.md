@@ -122,7 +122,32 @@ Tests: `bash tools/wsl/build.sh --test`. Docker: `docker build -f docker/Dockerf
 
 ## Results
 
-RESULTS_PLACEHOLDER
+**Gazebo scenario** (WSL2, real-time factor ≈ 1.0, AMCL, moving forklift/cart/worker): three orders
+queued at once, battery starting at 40 % with 15× drain and 20× charging so a charge cycle happens
+within the run. Report from the recorded bag (`ros2 run wdr_tools metrics`):
+
+| | |
+|---|---|
+| orders | 3 delivered, 0 failed, 0 navigation retries |
+| success rate | 100 % |
+| deliveries per hour | 19.2 (includes one full charge stop) |
+| mean time per order | 179.7 s (96.5 s, 133.6 s, and 308.9 s for the order that charged first) |
+| distance driven | 108.5 m |
+| near misses (< 0.35 m lidar range) | 3, closest approach 0.16 m |
+| dock visits | 1: order 3 started at 6 % → docked → charged to 90 % → undocked → delivered |
+
+Order 3 shows the full low-battery path: `CHECKING_BATTERY → GOING_TO_CHARGE → CHARGING →
+UNDOCKING → TO_PICKUP → … → DONE`. Simulated drain is exaggerated, so the battery reached 0 %
+on the way to the dock; a real threshold would leave a reserve (see
+[04-docking-battery](docs/04-docking-battery.md)).
+
+**Navigation check** (Gazebo, Nav2 goals only): four goals across the warehouse, all reached with
+2–18 cm final error, 40 % and 50 % speed limits applied in the slow zones, no sample inside a
+keep-out zone.
+
+**Tests**: `colcon test` → 54 tests, 0 failures locally (unit tests, generated-file checks, and
+the headless loopback end-to-end suite: reject, cancel, deliver, low battery → dock → charge →
+deliver). CI runs the same; it has not run on GitHub yet (repository not pushed).
 
 ## Repository layout
 

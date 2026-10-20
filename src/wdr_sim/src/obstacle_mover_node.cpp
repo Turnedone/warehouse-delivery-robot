@@ -104,7 +104,13 @@ private:
 
 int main(int argc, char** argv) {
     rclcpp::init(argc, argv);
-    rclcpp::spin(std::make_shared<wdr_sim::ObstacleMoverNode>());
+    int code = 0;
+    try {
+        rclcpp::spin(std::make_shared<wdr_sim::ObstacleMoverNode>());
+    } catch (const std::exception& e) {  // e.g. a missing or malformed obstacles file
+        RCLCPP_FATAL(rclcpp::get_logger("obstacle_mover"), "%s", e.what());
+        code = 1;
+    }
     rclcpp::shutdown();
-    return 0;
+    return code;
 }

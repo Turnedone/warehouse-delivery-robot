@@ -431,7 +431,7 @@ private:
         Current done;
         {
             std::lock_guard<std::mutex> lock(mutex_);
-            done = *current_;
+            if (current_) done = *current_;
             current_.reset();
         }
         result->duration_s = now().seconds() - start_s;
@@ -579,11 +579,17 @@ private:
 
 int main(int argc, char** argv) {
     rclcpp::init(argc, argv);
-    auto node = std::make_shared<wdr_mission::TaskManager>();
-    node->init();
-    rclcpp::executors::MultiThreadedExecutor executor(rclcpp::ExecutorOptions(), 4);
-    executor.add_node(node);
-    executor.spin();
+    int code = 0;
+    try {
+        auto node = std::make_shared<wdr_mission::TaskManager>();
+        node->init();
+        rclcpp::executors::MultiThreadedExecutor executor(rclcpp::ExecutorOptions(), 4);
+        executor.add_node(node);
+        executor.spin();
+    } catch (const std::exception& e) {  // e.g. a missing stations file or behavior tree
+        RCLCPP_FATAL(rclcpp::get_logger("task_manager"), "%s", e.what());
+        code = 1;
+    }
     rclcpp::shutdown();
-    return 0;
+    return code;
 }
