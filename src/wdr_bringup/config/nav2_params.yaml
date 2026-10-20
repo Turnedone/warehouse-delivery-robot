@@ -1,0 +1,473 @@
+# Nav2 configuration for a TurtleBot 4 delivering in the generated warehouse.
+#
+# Started from nav2_bringup/params/nav2_params.yaml (Jazzy); every change from the stock file
+# is marked "WDR:" with the reason. docs/02-navigation.md explains the choices.
+#
+# Paths marked <set by launch> are rewritten by wdr_bringup/launch/navigation.launch.py.
+
+amcl:
+  ros__parameters:
+    alpha1: 0.2
+    alpha2: 0.2
+    alpha3: 0.2
+    alpha4: 0.2
+    alpha5: 0.2
+    base_frame_id: "base_link"        # WDR: one base frame for the whole stack (TB4 base_footprint == base_link)
+    beam_skip_distance: 0.5
+    beam_skip_error_threshold: 0.9
+    beam_skip_threshold: 0.3
+    do_beamskip: false
+    global_frame_id: "map"
+    lambda_short: 0.1
+    laser_likelihood_max_dist: 2.0
+    laser_max_range: 12.0             # WDR: RPLIDAR A1 usable range
+    laser_min_range: 0.2              # WDR: ignore returns from the robot's own tower
+    laser_model_type: "likelihood_field"
+    max_beams: 60
+    max_particles: 2000
+    min_particles: 500
+    odom_frame_id: "odom"
+    pf_err: 0.05
+    pf_z: 0.99
+    recovery_alpha_fast: 0.0
+    recovery_alpha_slow: 0.0
+    resample_interval: 1
+    robot_model_type: "nav2_amcl::DifferentialMotionModel"
+    save_pose_rate: 0.5
+    sigma_hit: 0.2
+    tf_broadcast: true
+    transform_tolerance: 1.0
+    update_min_a: 0.1                 # WDR: update more often (0.2 rad / 0.25 m stock) so the pose
+    update_min_d: 0.1                 #      stays tight on the dock approach
+    z_hit: 0.5
+    z_max: 0.05
+    z_rand: 0.5
+    z_short: 0.05
+    scan_topic: scan
+    set_initial_pose: false           # WDR: initial_pose_publisher sends /initialpose (same path as RViz)
+
+bt_navigator:
+  ros__parameters:
+    global_frame: map
+    robot_base_frame: base_link
+    odom_topic: /odom
+    bt_loop_duration: 10
+    default_server_timeout: 20
+    wait_for_service_timeout: 1000
+    action_server_result_timeout: 900.0
+    navigators: ["navigate_to_pose", "navigate_through_poses"]
+    navigate_to_pose:
+      plugin: "nav2_bt_navigator::NavigateToPoseNavigator"
+    navigate_through_poses:
+      plugin: "nav2_bt_navigator::NavigateThroughPosesNavigator"
+    error_code_names:
+      - compute_path_error_code
+      - follow_path_error_code
+
+controller_server:
+  ros__parameters:
+    controller_frequency: 20.0
+    costmap_update_timeout: 0.30
+    min_x_velocity_threshold: 0.001
+    min_y_velocity_threshold: 0.5
+    min_theta_velocity_threshold: 0.001
+    failure_tolerance: 0.3
+    progress_checker_plugins: ["progress_checker"]
+    goal_checker_plugins: ["general_goal_checker"]
+    controller_plugins: ["FollowPath"]
+    use_realtime_priority: false
+    speed_limit_topic: "/speed_limit"  # WDR: published by the speed costmap filter
+
+    progress_checker:
+      plugin: "nav2_controller::SimpleProgressChecker"
+      required_movement_radius: 0.5
+      movement_time_allowance: 15.0   # WDR: 10 s stock; waiting for a forklift to pass is not "stuck"
+    general_goal_checker:
+      stateful: True
+      plugin: "nav2_controller::SimpleGoalChecker"
+      xy_goal_tolerance: 0.15         # WDR: 0.25 stock; stations are 0.6 x 0.6 m floor pads
+      yaw_goal_tolerance: 0.25
+    FollowPath:
+      plugin: "nav2_mppi_controller::MPPIController"
+      time_steps: 56
+      model_dt: 0.05
+      batch_size: 2000
+      ax_max: 3.0
+      ax_min: -3.0
+      ay_max: 3.0
+      ay_min: -3.0
+      az_max: 3.5
+      vx_std: 0.2
+      vy_std: 0.2
+      wz_std: 0.4
+      vx_max: 0.45                    # WDR: TurtleBot 4 top speed is ~0.46 m/s
+      vx_min: -0.20                   # WDR: allow short reversing only (-0.35 stock)
+      vy_max: 0.5
+      wz_max: 1.5                     # WDR: 1.9 stock; gentler turns with a payload
+      iteration_count: 1
+      prune_distance: 1.7
+      transform_tolerance: 0.1
+      temperature: 0.3
+      gamma: 0.015
+      motion_model: "DiffDrive"
+      visualize: false                # WDR: trajectory markers cost bandwidth and bag space
+      regenerate_noises: true
+      TrajectoryVisualizer:
+        trajectory_step: 5
+        time_step: 3
+      AckermannConstraints:
+        min_turning_r: 0.2
+      critics: [
+        "ConstraintCritic", "CostCritic", "GoalCritic",
+        "GoalAngleCritic", "PathAlignCritic", "PathFollowCritic",
+        "PathAngleCritic", "PreferForwardCritic"]
+      ConstraintCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 4.0
+      GoalCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 5.0
+        threshold_to_consider: 1.4
+      GoalAngleCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 3.0
+        threshold_to_consider: 0.5
+      PreferForwardCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 5.0
+        threshold_to_consider: 0.5
+      CostCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 3.81
+        near_collision_cost: 253
+        critical_cost: 300.0
+        consider_footprint: false     # circular robot: robot_radius is exact enough
+        collision_cost: 1000000.0
+        near_goal_distance: 1.0
+        trajectory_point_step: 2
+      PathAlignCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 14.0
+        max_path_occupancy_ratio: 0.05
+        trajectory_point_step: 4
+        threshold_to_consider: 0.5
+        offset_from_furthest: 20
+        use_path_orientations: false
+      PathFollowCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 5.0
+        offset_from_furthest: 5
+        threshold_to_consider: 1.4
+      PathAngleCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 2.0
+        offset_from_furthest: 4
+        threshold_to_consider: 0.5
+        max_angle_to_furthest: 1.0
+        mode: 0
+
+local_costmap:
+  local_costmap:
+    ros__parameters:
+      update_frequency: 5.0
+      publish_frequency: 2.0
+      global_frame: odom
+      robot_base_frame: base_link
+      rolling_window: true
+      width: 4                        # WDR: 3 m stock; see a forklift a little earlier
+      height: 4
+      resolution: 0.05
+      robot_radius: 0.18              # WDR: TurtleBot 4 radius 0.17 m + 1 cm margin
+      # WDR: 2D obstacle layer (a planar lidar has nothing to put in a voxel grid) and the
+      # keep-out filter, so MPPI also refuses to cut through a keep-out zone.
+      plugins: ["obstacle_layer", "inflation_layer"]
+      filters: ["keepout_filter"]
+      keepout_filter:
+        plugin: "nav2_costmap_2d::KeepoutFilter"
+        enabled: True
+        filter_info_topic: "/keepout_costmap_filter_info"
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        enabled: True
+        observation_sources: scan
+        scan:
+          topic: /scan
+          max_obstacle_height: 2.0
+          clearing: True
+          marking: True
+          data_type: "LaserScan"
+          raytrace_max_range: 5.0
+          raytrace_min_range: 0.0
+          obstacle_max_range: 4.0
+          obstacle_min_range: 0.2
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        cost_scaling_factor: 4.0
+        inflation_radius: 0.55
+      always_send_full_costmap: True
+
+global_costmap:
+  global_costmap:
+    ros__parameters:
+      update_frequency: 1.0
+      publish_frequency: 1.0
+      global_frame: map
+      robot_base_frame: base_link
+      robot_radius: 0.18
+      resolution: 0.05
+      track_unknown_space: true
+      plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
+      # WDR: costmap filters. Keep-out zones become lethal cells the planner routes around;
+      # the speed filter publishes a speed limit whenever the robot is inside a slow zone.
+      filters: ["keepout_filter", "speed_filter"]
+      keepout_filter:
+        plugin: "nav2_costmap_2d::KeepoutFilter"
+        enabled: True
+        filter_info_topic: "/keepout_costmap_filter_info"
+      speed_filter:
+        plugin: "nav2_costmap_2d::SpeedFilter"
+        enabled: True
+        filter_info_topic: "/speed_costmap_filter_info"
+        speed_limit_topic: "/speed_limit"
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        enabled: True
+        observation_sources: scan
+        scan:
+          topic: /scan
+          max_obstacle_height: 2.0
+          clearing: True
+          marking: True
+          data_type: "LaserScan"
+          raytrace_max_range: 6.0
+          raytrace_min_range: 0.0
+          obstacle_max_range: 5.0
+          obstacle_min_range: 0.2
+      static_layer:
+        plugin: "nav2_costmap_2d::StaticLayer"
+        map_subscribe_transient_local: True
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        cost_scaling_factor: 4.0
+        inflation_radius: 0.55
+      always_send_full_costmap: True
+
+map_saver:
+  ros__parameters:
+    save_map_timeout: 5.0
+    free_thresh_default: 0.25
+    occupied_thresh_default: 0.65
+    map_subscribe_transient_local: True
+
+planner_server:
+  ros__parameters:
+    expected_planner_frequency: 20.0
+    planner_plugins: ["GridBased"]
+    costmap_update_timeout: 1.0
+    # WDR: Smac 2D (A* on the costmap with cost-aware search and smoothing) instead of NavFn.
+    # For a circular differential-drive robot that can turn in place, Smac's 2D variant is the
+    # recommended one; Hybrid-A* / State Lattice only pay off for car-like or non-circular robots.
+    GridBased:
+      plugin: "nav2_smac_planner::SmacPlanner2D"
+      tolerance: 0.25
+      downsample_costmap: false
+      downsampling_factor: 1
+      allow_unknown: false            # never plan through space the map does not know
+      max_iterations: 1000000
+      max_on_approach_iterations: 1000
+      max_planning_time: 2.0
+      cost_travel_multiplier: 2.0     # prefer the middle of aisles, away from racks
+      use_final_approach_orientation: false
+      smoother:
+        max_iterations: 1000
+        w_smooth: 0.3
+        w_data: 0.2
+        tolerance: 1.0e-10
+
+smoother_server:
+  ros__parameters:
+    smoother_plugins: ["simple_smoother"]
+    simple_smoother:
+      plugin: "nav2_smoother::SimpleSmoother"
+      tolerance: 1.0e-10
+      max_its: 1000
+      do_refinement: True
+
+behavior_server:
+  ros__parameters:
+    local_costmap_topic: local_costmap/costmap_raw
+    global_costmap_topic: global_costmap/costmap_raw
+    local_footprint_topic: local_costmap/published_footprint
+    global_footprint_topic: global_costmap/published_footprint
+    cycle_frequency: 10.0
+    behavior_plugins: ["spin", "backup", "drive_on_heading", "assisted_teleop", "wait"]
+    spin:
+      plugin: "nav2_behaviors::Spin"
+    backup:
+      plugin: "nav2_behaviors::BackUp"
+    drive_on_heading:
+      plugin: "nav2_behaviors::DriveOnHeading"
+    wait:
+      plugin: "nav2_behaviors::Wait"
+    assisted_teleop:
+      plugin: "nav2_behaviors::AssistedTeleop"
+    local_frame: odom
+    global_frame: map
+    robot_base_frame: base_link
+    transform_tolerance: 0.1
+    simulate_ahead_time: 2.0
+    max_rotational_vel: 1.0
+    min_rotational_vel: 0.4
+    rotational_acc_lim: 3.2
+
+velocity_smoother:
+  ros__parameters:
+    smoothing_frequency: 20.0
+    stamp_smoothed_velocity_with_smoothing_time: False
+    scale_velocities: False
+    feedback: "OPEN_LOOP"
+    max_velocity: [0.45, 0.0, 1.5]    # WDR: match the controller limits
+    min_velocity: [-0.20, 0.0, -1.5]
+    max_accel: [2.5, 0.0, 3.2]
+    max_decel: [-2.5, 0.0, -3.2]
+    odom_topic: "odom"
+    odom_duration: 0.1
+    deadband_velocity: [0.0, 0.0, 0.0]
+    velocity_timeout: 1.0
+
+collision_monitor:
+  ros__parameters:
+    base_frame_id: "base_link"
+    odom_frame_id: "odom"
+    cmd_vel_in_topic: "cmd_vel_smoothed"
+    cmd_vel_out_topic: "cmd_vel"
+    state_topic: "collision_monitor_state"
+    transform_tolerance: 0.2
+    source_timeout: 1.0
+    base_shift_correction: True
+    stop_pub_timeout: 2.0
+    # WDR: a hard stop zone in front of the robot on top of the stock approach polygon:
+    # the last line of defence if something steps in front of it (a person, a forklift's forks).
+    polygons: ["StopZone", "FootprintApproach"]
+    StopZone:
+      type: "polygon"
+      points: "[[0.30, 0.20], [0.30, -0.20], [0.0, -0.20], [0.0, 0.20]]"
+      action_type: "stop"
+      min_points: 4
+      visualize: True
+      polygon_pub_topic: "polygon_stop"
+      enabled: True
+    FootprintApproach:
+      type: "polygon"
+      action_type: "approach"
+      footprint_topic: "/local_costmap/published_footprint"
+      time_before_collision: 1.2
+      simulation_time_step: 0.1
+      min_points: 6
+      visualize: False
+      enabled: True
+    observation_sources: ["scan"]
+    scan:
+      type: "scan"
+      topic: "scan"
+      min_height: 0.15
+      max_height: 2.0
+      enabled: True
+
+docking_server:
+  ros__parameters:
+    controller_frequency: 50.0
+    initial_perception_timeout: 5.0
+    wait_charge_timeout: 10.0         # WDR: battery_sim publishes at 5 Hz; give it time to report charging
+    dock_approach_timeout: 30.0
+    undock_linear_tolerance: 0.05
+    undock_angular_tolerance: 0.1
+    max_retries: 3
+    base_frame: "base_link"
+    fixed_frame: "odom"
+    dock_backwards: false
+    dock_prestaging_tolerance: 0.5
+
+    dock_plugins: ['simple_charging_dock']
+    simple_charging_dock:
+      plugin: 'opennav_docking::SimpleChargingDock'
+      docking_threshold: 0.05
+      staging_x_offset: -0.7
+      # WDR: no dock-detection camera/AprilTag in this simulation, so the dock pose comes from
+      # the dock database; "charging" is read from /battery_state (battery_sim), as on a real
+      # robot whose base reports charge current when it sits on the contacts.
+      use_external_detection_pose: false
+      use_battery_status: true
+      use_stall_detection: false
+      charging_threshold: 0.5
+      filter_coef: 0.1
+
+    # WDR: dock instances come from the generated dock database
+    dock_database: "<set by launch>"
+
+    controller:
+      k_phi: 3.0
+      k_delta: 2.0
+      v_linear_min: 0.15
+      v_linear_max: 0.15
+      use_collision_detection: true
+      costmap_topic: "local_costmap/costmap_raw"
+      footprint_topic: "local_costmap/published_footprint"
+      transform_tolerance: 0.1
+      projection_time: 5.0
+      simulation_step: 0.1
+      dock_collision_threshold: 0.3
+
+# ---- costmap filter infrastructure (WDR, not in the stock file) ----------------------------
+# Each filter needs a map_server publishing the mask and a costmap_filter_info_server telling
+# the costmap how to interpret it.
+keepout_filter_mask_server:
+  ros__parameters:
+    topic_name: "keepout_filter_mask"
+    frame_id: "map"
+    yaml_filename: "<set by launch>"
+
+keepout_costmap_filter_info_server:
+  ros__parameters:
+    type: 0                           # 0 = keep-out / preferred lanes
+    filter_info_topic: "/keepout_costmap_filter_info"
+    mask_topic: "/keepout_filter_mask"
+    base: 0.0
+    multiplier: 1.0
+
+speed_filter_mask_server:
+  ros__parameters:
+    topic_name: "speed_filter_mask"
+    frame_id: "map"
+    yaml_filename: "<set by launch>"
+
+speed_costmap_filter_info_server:
+  ros__parameters:
+    type: 1                           # 1 = speed limit in percent of maximum speed
+    filter_info_topic: "/speed_costmap_filter_info"
+    mask_topic: "/speed_filter_mask"
+    base: 0.0
+    multiplier: 1.0
+
+# ---- loopback simulator (sim:=loopback, used by the fast integration tests) ---------------
+loopback_simulator:
+  ros__parameters:
+    base_frame_id: "base_link"
+    odom_frame_id: "odom"
+    map_frame_id: "map"
+    scan_frame_id: "rplidar_link"
+    update_duration: 0.02
+    scan_range_min: 0.2
+    scan_range_max: 12.0
+    scan_angle_min: -3.1415
+    scan_angle_max: 3.1415
+    scan_angle_increment: 0.02617
+    scan_use_inf: true

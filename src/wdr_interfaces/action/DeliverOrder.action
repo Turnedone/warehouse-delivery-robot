@@ -1,0 +1,36 @@
+# Deliver one order: drive to the pick-up station, wait until the operator has loaded the
+# robot, drive to the drop-off station, wait until it has been unloaded.
+# Goals are queued by the task manager and executed one at a time (highest priority first,
+# first-come first-served within a priority).
+
+# ---- goal
+string order_id          # optional; the task manager generates one if empty
+string pickup_station    # a station name from stations.yaml, e.g. shelf_a1
+string dropoff_station   # e.g. pack_1
+uint8 priority 0         # higher runs first
+---
+# ---- result
+uint16 NONE=0
+uint16 PICKUP_UNREACHABLE=1
+uint16 LOAD_TIMEOUT=2
+uint16 DROPOFF_UNREACHABLE=3
+uint16 UNLOAD_TIMEOUT=4
+uint16 CHARGING_FAILED=5
+uint16 CANCELED=6
+uint16 UNKNOWN=99
+
+bool success
+uint16 error_code
+string error_msg
+string order_id
+float64 duration_s       # from start of execution to the result (time in the queue excluded)
+float64 queue_time_s     # time spent waiting in the queue
+float64 distance_m       # distance driven while executing this order
+uint32 retries           # navigation retries used
+---
+# ---- feedback
+string order_id
+string state             # see OrderEvent.msg for the list of states
+uint32 queue_position    # 0 while executing
+float32 battery_percentage
+uint32 retries

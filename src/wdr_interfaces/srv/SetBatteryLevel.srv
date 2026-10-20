@@ -1,0 +1,5 @@
+# Sets the simulated battery's state of charge (for demos and tests).
+float32 percentage   # 0.0 .. 1.0
+---
+bool success
+string message

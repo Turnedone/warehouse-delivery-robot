@@ -1,0 +1,5 @@
+* text=auto eol=lf
+*.pgm binary
+*.png binary
+*.mcap binary
+*.db3 binary

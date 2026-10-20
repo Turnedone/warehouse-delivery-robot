@@ -1,0 +1,93 @@
+# Single source of truth for the simulated warehouse.
+#
+# scripts/generate_warehouse.py turns this file into everything that has to agree
+# with the building geometry:
+#   worlds/warehouse.sdf          Gazebo Harmonic world (walls, racks, tables, floor markings, moving obstacles)
+#   maps/warehouse.{pgm,yaml}     occupancy map for map_server / AMCL
+#   maps/keepout_mask.{pgm,yaml}  Nav2 keep-out filter mask
+#   maps/speed_mask.{pgm,yaml}    Nav2 speed filter mask (percent of max speed)
+#   config/stations.yaml          named stations for the mission layer
+#   config/docks.yaml             opennav_docking dock database
+#   config/obstacles.yaml         paths for the moving obstacles (wdr_sim obstacle_mover)
+#
+# Units are metres and radians. The world frame and the map frame coincide.
+# Boxes are axis-aligned: [center_x, center_y, size_x, size_y, height].
+
+world_name: warehouse
+
+building:
+  size: [24.0, 16.0]        # interior spans x 0..24, y 0..16
+  wall_thickness: 0.2
+  wall_height: 2.5
+
+map:
+  resolution: 0.05
+  margin: 1.0               # unknown space around the building in the map image
+
+# Static objects. Everything here is drawn into the occupancy map unless in_map is false
+# (objects lower than the lidar plane, about 0.2 m, would not appear in a real SLAM map either).
+objects:
+  # Pallet racks: three rows, each split by a cross aisle at x 9..11.5
+  - {name: rack_a1, box: [6.0, 12.4, 6.0, 0.9, 2.0], color: [0.85, 0.45, 0.10]}
+  - {name: rack_a2, box: [14.5, 12.4, 6.0, 0.9, 2.0], color: [0.85, 0.45, 0.10]}
+  - {name: rack_b1, box: [6.0, 8.4, 6.0, 0.9, 2.0], color: [0.85, 0.45, 0.10]}
+  - {name: rack_b2, box: [14.5, 8.4, 6.0, 0.9, 2.0], color: [0.85, 0.45, 0.10]}
+  - {name: rack_c1, box: [6.0, 4.4, 6.0, 0.9, 2.0], color: [0.85, 0.45, 0.10]}
+  - {name: rack_c2, box: [14.5, 4.4, 6.0, 0.9, 2.0], color: [0.85, 0.45, 0.10]}
+  # Packing tables in the packing area along the east wall
+  - {name: pack_table_1, box: [23.2, 12.5, 1.2, 1.6, 0.9], color: [0.55, 0.55, 0.60]}
+  - {name: pack_table_2, box: [23.2, 8.5, 1.2, 1.6, 0.9], color: [0.55, 0.55, 0.60]}
+  - {name: shipping_table, box: [23.2, 4.5, 1.2, 1.6, 0.9], color: [0.55, 0.55, 0.60]}
+  # Columns holding up the roof
+  - {name: column_1, box: [10.25, 2.0, 0.4, 0.4, 2.5], color: [0.6, 0.6, 0.6]}
+  - {name: column_2, box: [10.25, 14.2, 0.4, 0.4, 2.5], color: [0.6, 0.6, 0.6]}
+  # Office block in the north-west corner
+  - {name: office, box: [1.5, 14.75, 3.0, 2.5, 2.5], color: [0.75, 0.75, 0.70]}
+  # Charger post behind the dock: low, under the lidar plane, so not in the map
+  - {name: charger_post, box: [0.2, 1.5, 0.2, 0.5, 0.15], color: [0.1, 0.6, 0.2], in_map: false}
+
+# Named stations the mission layer can send the robot to. yaw is the robot heading on arrival.
+stations:
+  - {name: shelf_a1, type: pickup, pose: [6.0, 11.2, 1.5708]}
+  - {name: shelf_a2, type: pickup, pose: [14.5, 11.2, 1.5708]}
+  - {name: shelf_b1, type: pickup, pose: [6.0, 7.2, 1.5708]}
+  - {name: shelf_b2, type: pickup, pose: [14.5, 7.2, 1.5708]}
+  - {name: shelf_c1, type: pickup, pose: [6.0, 3.2, 1.5708]}
+  - {name: shelf_c2, type: pickup, pose: [14.5, 3.2, 1.5708]}
+  - {name: pack_1, type: dropoff, pose: [22.0, 12.5, 0.0]}
+  - {name: pack_2, type: dropoff, pose: [22.0, 8.5, 0.0]}
+  - {name: shipping, type: dropoff, pose: [22.0, 4.5, 0.0]}
+  - {name: qa_hold, type: exception, pose: [13.0, 15.0, 1.5708]}
+
+# Charging docks. pose is where base_link sits when docked; the robot drives in forwards,
+# so it faces the charger post (yaw = pi means facing -x, towards the west wall).
+docks:
+  - {name: home_dock, type: simple_charging_dock, pose: [0.75, 1.5, 3.14159]}
+
+# Where the robot appears in Gazebo (on the dock).
+robot_spawn: [0.75, 1.5, 3.14159]
+
+# Nav2 costmap filter zones, axis-aligned rectangles [min_x, min_y, max_x, max_y].
+# Costmap filters are applied after the inflation layer, so keep-out cells are not inflated and
+# would only keep the robot's centre out. The generator therefore grows each keep-out rectangle
+# by keepout_margin in the mask (robot radius 0.18 m + clearance); the floor marking in Gazebo
+# shows the zone itself.
+keepout_margin: 0.25
+keepout_zones:
+  - {name: pallet_staging, rect: [18.3, 0.3, 19.8, 3.0]}   # forklift-only pallet staging
+  - {name: maintenance_bay, rect: [3.3, 13.3, 4.8, 15.8]}  # open floor, but robots may not enter
+
+speed_zones:
+  # percent: maximum speed as a percentage of the controller's limit
+  - {name: forklift_cross_aisle, rect: [9.0, 0.1, 11.5, 15.9], percent: 40}
+  - {name: packing_area_people, rect: [20.0, 0.1, 23.9, 15.9], percent: 50}
+
+# Moving obstacles: moved along their path (back and forth) by wdr_sim's obstacle_mover
+# through Gazebo's set_pose service. Not in the map: the costmaps must see them through the lidar.
+moving_obstacles:
+  - {name: forklift, size: [1.2, 0.8, 1.8], color: [0.95, 0.75, 0.05], speed: 0.45,
+     path: [[10.25, 3.0], [10.25, 13.0]]}
+  - {name: picking_cart, size: [0.7, 0.5, 1.0], color: [0.2, 0.35, 0.8], speed: 0.3,
+     path: [[4.0, 10.4], [16.5, 10.4]]}
+  - {name: worker, size: [0.45, 0.45, 1.7], color: [0.85, 0.2, 0.2], speed: 0.35,
+     path: [[20.6, 2.5], [20.6, 14.0]]}

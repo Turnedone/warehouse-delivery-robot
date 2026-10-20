@@ -1,0 +1,9 @@
+# An operator (or the simulated operator) confirms that the robot has been loaded or unloaded.
+string LOAD=load
+string UNLOAD=unload
+
+string order_id   # empty: the order currently being executed
+string step       # load | unload
+---
+bool accepted
+string message

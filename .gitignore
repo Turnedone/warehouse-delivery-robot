@@ -1,0 +1,11 @@
+build/
+install/
+log/
+__pycache__/
+*.pyc
+.venv/
+bags/
+*.mcap
+*.db3
+.vscode/
+compile_commands.json
