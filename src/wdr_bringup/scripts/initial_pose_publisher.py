@@ -3,7 +3,12 @@
 
 What an operator does with RViz's "2D Pose Estimate" tool, done automatically: AMCL (Gazebo
 mode) or the loopback simulator (loopback mode) needs it before the map -> odom transform
-exists. Re-publishes every 2 s until TF map -> base_link is available, then exits.
+exists. Re-publishes every 0.5 s until TF map -> base_link is available, then exits.
+
+It first waits until the robot's own static transforms (base_link -> sensor_frame, from
+robot_state_publisher) have been available for a second. Nav2's loopback simulator looks up
+base_link -> lidar only until it receives the first initial pose; if the pose arrives first,
+its simulated lidar stays empty for the whole run.
 """
 
 import math
@@ -24,11 +29,13 @@ class InitialPosePublisher(Node):
         self.y = self.declare_parameter('y', 0.0).value
         self.yaw = self.declare_parameter('yaw', 0.0).value
         self.base_frame = self.declare_parameter('base_frame', 'base_link').value
+        self.sensor_frame = self.declare_parameter('sensor_frame', 'rplidar_link').value
+        self.sensor_tf_since = None
         self.pub = self.create_publisher(PoseWithCovarianceStamped, 'initialpose', 1)
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
         self.done = False
-        self.timer = self.create_timer(2.0, self.tick)
+        self.timer = self.create_timer(0.5, self.tick)
 
     def tick(self):
         if self.tf_buffer.can_transform('map', self.base_frame, Time(),
@@ -38,6 +45,15 @@ class InitialPosePublisher(Node):
             return
         if self.pub.get_subscription_count() == 0:
             return  # nobody listening yet: a message now would be lost
+        if not self.tf_buffer.can_transform(self.base_frame, self.sensor_frame, Time(),
+                                            timeout=Duration(seconds=0.0)):
+            self.sensor_tf_since = None
+            return
+        now = self.get_clock().now()
+        if self.sensor_tf_since is None:
+            self.sensor_tf_since = now
+        if now - self.sensor_tf_since < Duration(seconds=1.0):
+            return
         msg = PoseWithCovarianceStamped()
         msg.header.frame_id = 'map'
         msg.header.stamp = self.get_clock().now().to_msg()

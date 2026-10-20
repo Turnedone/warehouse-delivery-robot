@@ -51,7 +51,7 @@ TEST(BatteryModel, StaysWithinBoundsAndStopsChargingWhenFull) {
     EXPECT_DOUBLE_EQ(b.soc(), 1.0);
     b.update(1.0, 0.0, true);
     EXPECT_FALSE(b.charging());
-    EXPECT_DOUBLE_EQ(b.current_a(), 0.0);
+    EXPECT_DOUBLE_EQ(b.current_a(), p.trickle_current_a);  // still visibly on the charger
     b.update(1e7, 1.0, false);
     EXPECT_DOUBLE_EQ(b.soc(), 0.0);
 }

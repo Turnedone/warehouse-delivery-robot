@@ -28,7 +28,7 @@ from launch_ros.actions import ComposableNodeContainer
 from launch_ros.descriptions import ComposableNode
 
 
-def write_params(bringup, source):
+def write_params(bringup, source, use_sim_time):
     """Fills the '<set by launch>' paths in nav2_params.yaml and returns a temporary copy."""
     with open(source) as f:
         params = yaml.safe_load(f)
@@ -43,13 +43,13 @@ def write_params(bringup, source):
     set_param('speed_filter_mask_server', 'yaml_filename', os.path.join(maps, 'speed_mask.yaml'))
     params['map_server'] = {'ros__parameters': {
         'yaml_filename': os.path.join(maps, 'warehouse.yaml')}}
-    for node in params.values():  # every Nav2 node runs on the simulation clock
+    for node in params.values():  # one clock for every Nav2 node
         if isinstance(node, dict) and 'ros__parameters' in node:
-            node['ros__parameters']['use_sim_time'] = True
+            node['ros__parameters']['use_sim_time'] = use_sim_time
         elif isinstance(node, dict):  # costmaps are nested one level deeper
             for inner in node.values():
                 if isinstance(inner, dict) and 'ros__parameters' in inner:
-                    inner['ros__parameters']['use_sim_time'] = True
+                    inner['ros__parameters']['use_sim_time'] = use_sim_time
     out = tempfile.NamedTemporaryFile('w', prefix='wdr_nav2_', suffix='.yaml', delete=False)
     yaml.safe_dump(params, out, sort_keys=False)
     out.close()
@@ -58,7 +58,9 @@ def write_params(bringup, source):
 
 def launch_setup(context):
     bringup = get_package_share_directory('wdr_bringup')
-    params = write_params(bringup, LaunchConfiguration('params_file').perform(context))
+    use_sim_time = LaunchConfiguration('use_sim_time').perform(context).lower() == 'true'
+    params = write_params(bringup, LaunchConfiguration('params_file').perform(context),
+                          use_sim_time)
     use_amcl = LaunchConfiguration('localization').perform(context) == 'amcl'
 
     def component(package, plugin, name, remappings=(), extra=None):
@@ -69,7 +71,7 @@ def launch_setup(context):
     def manager(name, nodes):
         return ComposableNode(package='nav2_lifecycle_manager',
                               plugin='nav2_lifecycle_manager::LifecycleManager', name=name,
-                              parameters=[{'use_sim_time': True, 'autostart': True,
+                              parameters=[{'use_sim_time': use_sim_time, 'autostart': True,
                                            'node_names': nodes,
                                            'bond_timeout': 10.0}])
 
@@ -121,7 +123,7 @@ def launch_setup(context):
         # The params file also goes to the container process itself: the costmaps are child
         # nodes created inside controller_server/planner_server and read their parameters
         # from the process-wide --params-file, not from their parent component's parameters.
-        parameters=[params, {'use_sim_time': True, 'autostart': True}],
+        parameters=[params, {'use_sim_time': use_sim_time, 'autostart': True}],
         composable_node_descriptions=(
             localization + filters + navigation + [
                 manager('lifecycle_manager_localization', localization_names),
@@ -137,6 +139,7 @@ def generate_launch_description():
         DeclareLaunchArgument('params_file',
                               default_value=os.path.join(bringup, 'config', 'nav2_params.yaml')),
         DeclareLaunchArgument('localization', default_value='amcl', choices=['amcl', 'none']),
+        DeclareLaunchArgument('use_sim_time', default_value='true'),
         DeclareLaunchArgument('log_level', default_value='info'),
         OpaqueFunction(function=launch_setup),
     ])

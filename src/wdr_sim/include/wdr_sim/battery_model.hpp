@@ -10,6 +10,7 @@ struct BatteryParams {
     double charge_power_w = 30.0;        // dock charging power
     double drain_scale = 1.0;            // >1 makes the battery run down faster (demos and tests)
     double charge_scale = 1.0;           // >1 makes charging faster
+    double trickle_current_a = 0.6;      // float charge on a full battery while on the charger
     double empty_voltage = 12.0;
     double full_voltage = 16.8;
 };
@@ -26,7 +27,9 @@ public:
     bool charging() const { return charging_; }
     double voltage() const;
     // Battery current in amperes: positive while charging, negative while discharging
-    // (sensor_msgs/BatteryState convention).
+    // (sensor_msgs/BatteryState convention). A full battery on the charger still shows the
+    // small trickle current: opennav_docking's SimpleChargingDock (use_battery_status) reads
+    // "current above charging_threshold" as "the robot is on the contacts".
     double current_a() const { return current_a_; }
 
 private:

@@ -26,7 +26,7 @@ void BatteryModel::update(double dt_s, double speed_mps, bool on_charger) {
 
     const double capacity_j = params_.capacity_wh * 3600.0;
     set_soc(soc_ + net_w * dt_s / capacity_j);
-    current_a_ = net_w / voltage();
+    current_a_ = on_charger && !charging_ ? params_.trickle_current_a : net_w / voltage();
 }
 
 }  // namespace wdr_sim

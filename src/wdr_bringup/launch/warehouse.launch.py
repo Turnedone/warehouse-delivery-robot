@@ -36,6 +36,11 @@ def launch_setup(context):
     bringup = get_package_share_directory('wdr_bringup')
     launch_dir = os.path.join(bringup, 'launch')
     sim = LaunchConfiguration('sim').perform(context)
+    # Gazebo drives a simulation clock (/clock). The loopback simulator runs in real time, so
+    # that stack uses wall time: no /clock at all, and so no jump from t=0 to wall time when a
+    # late clock publisher starts (that jump once made every Nav2 bond time out at once).
+    use_sim_time = sim == 'gazebo'
+    sim_time = 'true' if use_sim_time else 'false'
     with open(os.path.join(bringup, 'config', 'warehouse_layout.yaml')) as f:
         spawn_x, spawn_y, spawn_yaw = yaml.safe_load(f)['robot_spawn']
 
@@ -50,7 +55,7 @@ def launch_setup(context):
                                gui=LaunchConfiguration('gui'),
                                headless_rendering=LaunchConfiguration('headless_rendering'),
                                moving_obstacles=LaunchConfiguration('moving_obstacles')))
-        actions.append(include('navigation.launch.py', localization='amcl',
+        actions.append(include('navigation.launch.py', localization='amcl', use_sim_time=sim_time,
                                log_level=LaunchConfiguration('log_level')))
     else:
         # Nav2's loopback simulator: integrates cmd_vel into odometry, publishes map -> odom
@@ -61,23 +66,24 @@ def launch_setup(context):
             value_type=str)
         actions += [
             Node(package='robot_state_publisher', executable='robot_state_publisher',
-                 parameters=[{'use_sim_time': True, 'robot_description': robot_description}],
+                 parameters=[{'use_sim_time': False, 'robot_description': robot_description}],
                  output='screen'),
             Node(package='nav2_loopback_sim', executable='loopback_simulator',
                  name='loopback_simulator', output='screen',
                  parameters=[os.path.join(bringup, 'config', 'nav2_params.yaml'),
-                             {'use_sim_time': True}]),
-            include('navigation.launch.py', localization='none',
+                             {'use_sim_time': False, 'publish_clock': False}]),
+            include('navigation.launch.py', localization='none', use_sim_time=sim_time,
                     log_level=LaunchConfiguration('log_level')),
         ]
 
     actions.append(Node(package='wdr_bringup', executable='initial_pose_publisher.py',
                         name='initial_pose_publisher', output='screen',
-                        parameters=[{'use_sim_time': True, 'x': float(spawn_x),
+                        parameters=[{'use_sim_time': use_sim_time, 'x': float(spawn_x),
                                      'y': float(spawn_y), 'yaw': float(spawn_yaw)}]))
 
-    actions.append(include('mission.launch.py',
+    actions.append(include('mission.launch.py', use_sim_time=sim_time,
                            battery_drain_scale=LaunchConfiguration('battery_drain_scale'),
+                           battery_charge_scale=LaunchConfiguration('battery_charge_scale'),
                            initial_battery=LaunchConfiguration('initial_battery'),
                            operator_auto_confirm_s=LaunchConfiguration('operator_auto_confirm_s')))
 
@@ -88,13 +94,13 @@ def launch_setup(context):
             bag_dir = os.path.join(os.path.expanduser('~'), 'wdr_bags', f'run_{stamp}')
         os.makedirs(os.path.dirname(bag_dir), exist_ok=True)
         actions.append(ExecuteProcess(
-            cmd=['ros2', 'bag', 'record', '-s', 'mcap', '-o', bag_dir,
-                 '--use-sim-time'] + RECORDED_TOPICS,
+            cmd=['ros2', 'bag', 'record', '-s', 'mcap', '-o', bag_dir]
+            + (['--use-sim-time'] if use_sim_time else []) + RECORDED_TOPICS,
             output='screen', name='bag_record'))
 
     actions.append(Node(package='rviz2', executable='rviz2', name='rviz2', output='screen',
                         arguments=['-d', os.path.join(bringup, 'rviz', 'warehouse.rviz')],
-                        parameters=[{'use_sim_time': True}],
+                        parameters=[{'use_sim_time': use_sim_time}],
                         condition=IfCondition(LaunchConfiguration('rviz'))))
     return actions
 
@@ -111,6 +117,8 @@ def generate_launch_description():
                               description='default: ~/wdr_bags/run_<timestamp>'),
         DeclareLaunchArgument('battery_drain_scale', default_value='1.0',
                               description='>1 drains the simulated battery faster'),
+        DeclareLaunchArgument('battery_charge_scale', default_value='1.0',
+                              description='>1 charges the simulated battery faster'),
         DeclareLaunchArgument('initial_battery', default_value='1.0'),
         DeclareLaunchArgument('operator_auto_confirm_s', default_value='3.0',
                               description='simulated operator confirms load/unload after this '

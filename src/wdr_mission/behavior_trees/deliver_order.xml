@@ -1,0 +1,131 @@
+<?xml version="1.0"?>
+<!--
+  Delivery mission, executed once per order by the task manager.
+
+  Nodes from Nav2's BT plugin libraries: NavigateToPose, ClearEntireCostmap, Wait,
+  DockRobot, UndockRobot (opennav_docking_bt).
+  Nodes from wdr_mission_bt_nodes: GetStationPose, WaitForOperator, WaitForCharge, BatteryBelow,
+  ReportState.
+  Built-in BehaviorTree.CPP nodes: Sequence, Fallback, RetryUntilSuccessful, ForceFailure,
+  ForceSuccess, Inverter, AlwaysFailure, Script, ScriptCondition.
+
+  Blackboard inputs (set by the task manager per order): pickup, dropoff, exception_station,
+  dock_id, low_battery, resume_battery, nav_attempts, operator_timeout_s,
+  operator_auto_confirm_s, charge_timeout_s, docked, loaded.
+-->
+<root BTCPP_format="4" main_tree_to_execute="DeliverOrder">
+
+  <BehaviorTree ID="DeliverOrder">
+    <Fallback name="DeliverOrHandleFailure">
+      <Sequence name="Deliver">
+        <ReportState state="CHECKING_BATTERY"/>
+        <SubTree ID="EnsureCharged" _autoremap="true"/>
+        <SubTree ID="LeaveDock" _autoremap="true"/>
+
+        <ReportState state="TO_PICKUP"/>
+        <GetStationPose station="{pickup}" pose="{pickup_pose}"/>
+        <SubTree ID="NavigateWithRetry" goal="{pickup_pose}" _autoremap="true"/>
+        <ReportState state="WAITING_FOR_LOAD"/>
+        <WaitForOperator step="load" timeout_s="{operator_timeout_s}"
+                         auto_confirm_s="{operator_auto_confirm_s}"/>
+        <Script code="loaded:=true"/>
+
+        <ReportState state="TO_DROPOFF"/>
+        <GetStationPose station="{dropoff}" pose="{dropoff_pose}"/>
+        <SubTree ID="NavigateWithRetry" goal="{dropoff_pose}" _autoremap="true"/>
+        <ReportState state="WAITING_FOR_UNLOAD"/>
+        <WaitForOperator step="unload" timeout_s="{operator_timeout_s}"
+                         auto_confirm_s="{operator_auto_confirm_s}"/>
+        <Script code="loaded:=false"/>
+        <ReportState state="DONE"/>
+      </Sequence>
+
+      <!-- The order failed. If the robot is carrying goods, park them in the exception area
+           for a person to deal with instead of driving around with them. The order still
+           fails (AlwaysFailure); this branch only decides where the robot ends up. -->
+      <Sequence name="ParkLoadInExceptionArea">
+        <ScriptCondition code="loaded"/>
+        <ReportState state="TO_EXCEPTION_AREA"/>
+        <GetStationPose station="{exception_station}" pose="{exception_pose}"/>
+        <SubTree ID="NavigateWithRetry" goal="{exception_pose}" _autoremap="true"/>
+        <AlwaysFailure/>
+      </Sequence>
+    </Fallback>
+  </BehaviorTree>
+
+  <!-- Before taking an order: if the battery is low, dock and charge up to resume_battery. -->
+  <BehaviorTree ID="EnsureCharged">
+    <Fallback>
+      <Inverter>
+        <BatteryBelow threshold="{low_battery}"/>
+      </Inverter>
+      <Sequence>
+        <ReportState state="GOING_TO_CHARGE"/>
+        <SubTree ID="Dock" _autoremap="true"/>
+        <ReportState state="CHARGING"/>
+        <WaitForCharge target="{resume_battery}" timeout_s="{charge_timeout_s}"/>
+      </Sequence>
+    </Fallback>
+  </BehaviorTree>
+
+  <!-- Dock at the charger (opennav_docking: navigate to the staging pose, then the docking
+       controller drives onto the contacts and waits until the battery reports charging). -->
+  <BehaviorTree ID="Dock">
+    <Fallback>
+      <ScriptCondition code="docked"/>
+      <Sequence>
+        <RetryUntilSuccessful num_attempts="2">
+          <DockRobot dock_id="{dock_id}" navigate_to_staging_pose="true"
+                     error_code_id="{dock_error_code}"/>
+        </RetryUntilSuccessful>
+        <Script code="docked:=true"/>
+      </Sequence>
+    </Fallback>
+  </BehaviorTree>
+
+  <!-- Back off the charger to the staging pose. A failed undock is not fatal: the docking
+       server refuses when it does not believe the robot is on the dock (it reads "docked" from
+       the charge current), and then driving away with Nav2 is exactly right. If the robot is
+       really stuck, the navigation that follows fails with a clear error. -->
+  <BehaviorTree ID="LeaveDock">
+    <Fallback>
+      <ScriptCondition code="!docked"/>
+      <Sequence>
+        <ReportState state="UNDOCKING"/>
+        <ForceSuccess>
+          <UndockRobot dock_type="simple_charging_dock" error_code_id="{undock_error_code}"/>
+        </ForceSuccess>
+        <Script code="docked:=false"/>
+      </Sequence>
+    </Fallback>
+  </BehaviorTree>
+
+  <!-- NavigateToPose runs Nav2's own navigation tree (replanning, controller and planner
+       recoveries). If that still fails, clear both costmaps (stale obstacles from a forklift
+       that has gone), wait a moment and try again, up to nav_attempts times in total. -->
+  <BehaviorTree ID="NavigateWithRetry">
+    <RetryUntilSuccessful num_attempts="{nav_attempts}">
+      <Fallback>
+        <NavigateToPose goal="{goal}" error_code_id="{nav_error_code}"/>
+        <ForceFailure>
+          <Sequence>
+            <ReportState state="NAV_RETRY"/>
+            <ClearEntireCostmap service_name="/local_costmap/clear_entirely_local_costmap"/>
+            <ClearEntireCostmap service_name="/global_costmap/clear_entirely_global_costmap"/>
+            <Wait wait_duration="3.0"/>
+          </Sequence>
+        </ForceFailure>
+      </Fallback>
+    </RetryUntilSuccessful>
+  </BehaviorTree>
+
+  <!-- Run by the task manager when the queue is empty: go back to the dock and charge.
+       Halted as soon as a new order arrives. -->
+  <BehaviorTree ID="ReturnToDock">
+    <Sequence>
+      <ReportState state="RETURNING_TO_DOCK"/>
+      <SubTree ID="Dock" _autoremap="true"/>
+    </Sequence>
+  </BehaviorTree>
+
+</root>
