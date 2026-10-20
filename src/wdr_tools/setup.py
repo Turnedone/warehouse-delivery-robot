@@ -21,6 +21,7 @@ setup(
         'console_scripts': [
             'submit_orders = wdr_tools.submit_orders:main',
             'metrics = wdr_tools.metrics:main',
+            'status_markers = wdr_tools.status_markers:main',
         ],
     },
 )

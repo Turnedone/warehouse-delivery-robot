@@ -98,6 +98,11 @@ def launch_setup(context):
             + (['--use-sim-time'] if use_sim_time else []) + RECORDED_TOPICS,
             output='screen', name='bag_record'))
 
+    # Text labels for RViz: what the robot, the obstacles and the order queue are doing
+    actions.append(Node(package='wdr_tools', executable='status_markers', name='status_markers',
+                        output='screen', condition=IfCondition(LaunchConfiguration('rviz')),
+                        parameters=[{'use_sim_time': use_sim_time, 'stations_file':
+                                     os.path.join(bringup, 'config', 'stations.yaml')}]))
     actions.append(Node(package='rviz2', executable='rviz2', name='rviz2', output='screen',
                         arguments=['-d', os.path.join(bringup, 'rviz', 'warehouse.rviz')],
                         parameters=[{'use_sim_time': use_sim_time}],

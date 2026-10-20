@@ -101,6 +101,11 @@ Visualization Manager:
       Enabled: true
       Topic:
         Value: /wdr/obstacles
+    - Class: rviz_default_plugins/MarkerArray
+      Name: Status labels
+      Enabled: true
+      Topic:
+        Value: /wdr/status_markers
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
