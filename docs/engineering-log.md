@@ -191,7 +191,23 @@ drive back. The 30 % threshold stays as a floor. The estimate is a plain functio
 against hand-computed values (the first expected values written into the test were estimates,
 off by 2×; computing them by hand corrected the test, not the code).
 
-### 18. WSL clears /tmp between sessions
+### 18. A number that said more than it measured
+
+**Symptom.** The docs quoted "2–18 cm final error" for navigation goals, and robot-sim's CV line
+said "under 5 cm localization error". Asked how the localization error had been tested, neither
+held up as a localization measurement.
+**Cause.** The 2–18 cm was the distance between each goal and AMCL's *own* estimate: it measures
+how precisely the robot stopped by its own belief, not whether that belief was right. (robot-sim's
+5 cm was a single Gazebo snapshot; its real evidence is its ground-truth tests.)
+**Fix.** Gazebo's odometry-publisher plugin now publishes the robot's true pose on
+`/ground_truth/odom` (evaluation only), it is recorded in every bag, and the metrics report pairs
+each `/amcl_pose` with the true pose nearest in time. First result: mean 9.0 cm, 95th percentile
+15.8 cm, max 20.5 cm over 981 estimates. Two checks before quoting it: the error is the same
+standing as moving (so not a timestamp artefact), and only ~2.5 cm is a constant offset.
+**Lesson.** Before quoting a number, say what it compares against what. A self-consistency check is
+not a ground-truth measurement.
+
+### 19. WSL clears /tmp between sessions
 
 **Symptom.** A bag recorded a minute earlier did not exist any more.
 **Cause.** In this WSL distribution `/tmp` does not survive the distribution being idle.

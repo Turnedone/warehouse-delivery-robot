@@ -9,3 +9,4 @@ bags/
 *.db3
 .vscode/
 compile_commands.json
+demo-output/

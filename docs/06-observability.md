@@ -10,7 +10,8 @@ ros2 launch wdr_bringup warehouse.launch.py record:=true bag_dir:=~/wdr_bags/dem
 `rosbag2` records to **MCAP** (the default storage in Jazzy: one indexed file, readable by
 Foxglove and the ROS 2 tools). Recorded: `/wdr/order_events`, `/battery_state`, `/odom`, `/scan`,
 `/tf`, `/tf_static`, `/cmd_vel`, `/speed_limit`, `/collision_monitor_state`, `/plan`,
-`/amcl_pose`, `/wdr/obstacles`, the action status topics, `/robot_description` and `/map`:
+`/amcl_pose`, `/ground_truth/odom` (Gazebo's true robot pose, for evaluation only), `/wdr/obstacles`,
+the action status topics, `/robot_description` and `/map`:
 enough to replay the run in RViz or Foxglove and to compute the KPIs offline. Costmaps and
 camera data are left out (large, and reproducible from the rest).
 
@@ -32,9 +33,11 @@ ros2 run wdr_tools metrics ~/wdr_bags/demo --json   # for scripts / dashboards
 | closest approach | minimum lidar range outside docking |
 | dock visits | times the robot went to charge (low battery or idle) |
 | battery | start, end, minimum |
+| localization error | Gazebo runs: each `/amcl_pose` estimate against the `/ground_truth/odom` pose nearest in time (within 0.1 s); mean, 95th percentile, maximum, mean heading error |
 | failures by code | `DeliverOrder` result codes of failed orders |
 
-All times are the bag's receive timestamps (one clock for every topic), see the
+All times are the bag's receive timestamps (one clock for every topic), except the localization error,
+which pairs message stamps because AMCL's estimate refers to its scan time; see the
 [engineering log](engineering-log.md), entries 9–10. The calculations live in
 `metrics_core.py` as plain functions over lists, unit tested, plus one test that writes a real
 MCAP bag and reads it back.

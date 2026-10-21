@@ -45,6 +45,13 @@
   gz_type_name: "gz.msgs.Twist"
   direction: ROS_TO_GZ
 
+# Gazebo's true robot pose (evaluation only, see wdr_tb4.urdf.xacro)
+- ros_topic_name: "/ground_truth/odom"
+  gz_topic_name: "/ground_truth/odom"
+  ros_type_name: "nav_msgs/msg/Odometry"
+  gz_type_name: "gz.msgs.Odometry"
+  direction: GZ_TO_ROS
+
 - service_name: "/world/warehouse/set_pose"
   ros_type_name: "ros_gz_interfaces/srv/SetEntityPose"
   gz_req_type_name: "gz.msgs.Pose"

@@ -80,6 +80,25 @@ flowchart LR
     TM -- order_events --> BAG
 ```
 
+## Try it
+
+**One command, nothing to install but Docker.** Builds the image (10–15 min the first time,
+cached after that), runs the whole stack headless on Nav2's loopback simulator, delivers three
+orders (stopping to charge when the battery needs it) and prints the metrics report:
+
+```bash
+git clone https://github.com/Turnedone/warehouse-delivery-robot && cd warehouse-delivery-robot
+./run-demo.sh          # Windows: double-click run-demo.bat (Docker Desktop running)
+```
+
+The report, launch log and recorded bag land in `demo-output/`. CI runs this same script on every
+push to `main`.
+
+**In the browser, no installs:**
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/Turnedone/warehouse-delivery-robot)
+opens a ready ROS 2 Jazzy environment from the dev container; in its terminal run
+`bash tools/wsl/build.sh && bash src/wdr_bringup/scripts/demo_headless.sh`.
+
 ## Quick start (WSL2 Ubuntu 24.04 or Ubuntu 24.04)
 
 Needs ROS 2 Jazzy with Gazebo Harmonic (`ros-jazzy-ros-gz`) and Nav2; `rosdep` installs the rest:
@@ -163,11 +182,17 @@ on the way to the dock; a real threshold would leave a reserve (see
 robot with its AMCL particles and plan, and the moving obstacles. Item 14 is a "ghost trail":
 cells the lidar marked as the worker walked past, cleared only when a later beam passes through.*
 
-**Navigation check** (Gazebo, Nav2 goals only): four goals across the warehouse, all reached with
-2–18 cm final error, 40 % and 50 % speed limits applied in the slow zones, no sample inside a
-keep-out zone.
+**Localization accuracy** (AMCL against Gazebo's ground truth, same scenario re-run with
+energy-aware charging, 981 estimates over 9 minutes): **mean 9.0 cm, 95th percentile 15.8 cm,
+max 20.5 cm, heading 1.1°**. In that re-run the battery never dropped below 29 % (the robot chose to
+charge before two of the orders), against 0 % in the threshold-only run above, still at
+19.3 deliveries per hour.
 
-**Tests**: `colcon test` → 56 tests, 0 failures (unit tests, generated-file checks, and the
+**Navigation check** (Gazebo, Nav2 goals only): four goals across the warehouse, all reached with
+2–18 cm error by AMCL's own estimate, 40 % and 50 % speed limits applied in the slow zones, no
+sample inside a keep-out zone.
+
+**Tests**: `colcon test` → 65 tests, 0 failures (unit tests, generated-file checks, and the
 headless loopback end-to-end suite: reject, cancel, deliver, low battery → dock → charge →
 deliver), locally and in GitHub Actions.
 

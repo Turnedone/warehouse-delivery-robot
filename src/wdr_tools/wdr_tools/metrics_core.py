@@ -6,7 +6,11 @@ without a bag file:
     odom       [(t, x, y), ...]                                   from /odom
     scan_min   [(t, min_range), ...]                              closest lidar return per scan
     battery    [(t, percentage), ...]                             from /battery_state
+    estimate   [(t, x, y, yaw), ...]                              from /amcl_pose (Gazebo runs)
+    truth      [(t, x, y, yaw), ...]                              from /ground_truth/odom
 """
+
+import bisect
 
 import math
 from dataclasses import dataclass, field
@@ -43,6 +47,11 @@ class Report:
     battery_end: Optional[float]
     battery_min: Optional[float]
     failures_by_code: Dict[int, int]
+    loc_samples: int = 0                    # AMCL estimates matched to a ground-truth pose
+    loc_mean_m: Optional[float] = None      # localization error, position
+    loc_p95_m: Optional[float] = None
+    loc_max_m: Optional[float] = None
+    loc_yaw_mean_deg: Optional[float] = None
 
 
 def collect_orders(events) -> Dict[str, OrderRecord]:
@@ -100,8 +109,41 @@ def count_near_misses(scan_min, threshold_m: float, rearm_m: float) -> Tuple[int
     return count, min_seen
 
 
+def localization_errors(estimate, truth, max_dt=0.1):
+    """Position and heading error of each estimate against the ground truth nearest in time.
+
+    Estimates with no ground-truth sample within max_dt seconds are skipped. Returns
+    [(position_error_m, yaw_error_rad), ...].
+    """
+    if not truth:
+        return []
+    truth = sorted(truth, key=lambda s: s[0])
+    times = [s[0] for s in truth]
+    out = []
+    for t, x, y, yaw in estimate:
+        i = bisect.bisect_left(times, t)
+        best = min((j for j in (i - 1, i) if 0 <= j < len(truth)), key=lambda j: abs(times[j] - t))
+        if abs(times[best] - t) > max_dt:
+            continue
+        _, tx, ty, tyaw = truth[best]
+        dyaw = math.atan2(math.sin(yaw - tyaw), math.cos(yaw - tyaw))
+        out.append((math.hypot(x - tx, y - ty), abs(dyaw)))
+    return out
+
+
+def percentile(values, q):
+    """q-th percentile (0..100) by linear interpolation."""
+    v = sorted(values)
+    if not v:
+        return None
+    pos = (len(v) - 1) * q / 100.0
+    lo = int(math.floor(pos))
+    hi = min(lo + 1, len(v) - 1)
+    return v[lo] + (v[hi] - v[lo]) * (pos - lo)
+
+
 def compute_report(events, odom, scan_min, battery, near_miss_m=0.35, rearm_m=0.5,
-                   ignore_windows=()) -> Report:
+                   ignore_windows=(), estimate=(), truth=()) -> Report:
     """ignore_windows: [(t0, t1), ...] during which near misses are not counted (docking)."""
     orders = collect_orders(events)
     times = [e[0] for e in events] + [o[0] for o in odom] + [b[0] for b in battery]
@@ -128,6 +170,8 @@ def compute_report(events, odom, scan_min, battery, near_miss_m=0.35, rearm_m=0.
         failures_by_code[o.error_code] = failures_by_code.get(o.error_code, 0) + 1
 
     levels = [b[1] for b in sorted(battery, key=lambda b: b[0])]
+    loc = localization_errors(estimate, truth)
+    pos_err = [e[0] for e in loc]
     return Report(
         duration_s=duration,
         orders_total=len(orders),
@@ -149,6 +193,11 @@ def compute_report(events, odom, scan_min, battery, near_miss_m=0.35, rearm_m=0.
         battery_end=levels[-1] if levels else None,
         battery_min=min(levels) if levels else None,
         failures_by_code=failures_by_code,
+        loc_samples=len(loc),
+        loc_mean_m=(sum(pos_err) / len(pos_err)) if pos_err else None,
+        loc_p95_m=percentile(pos_err, 95),
+        loc_max_m=max(pos_err) if pos_err else None,
+        loc_yaw_mean_deg=(math.degrees(sum(e[1] for e in loc) / len(loc))) if loc else None,
     )
 
 
@@ -196,6 +245,10 @@ def format_report(r: Report) -> str:
         f'end {opt(r.battery_end and r.battery_end * 100, "{:.0f}%")}, '
         f'min {opt(r.battery_min and r.battery_min * 100, "{:.0f}%")}',
     ]
+    if r.loc_samples:
+        lines.append(f'localization error   mean {r.loc_mean_m * 100:.1f} cm, 95th percentile '
+                     f'{r.loc_p95_m * 100:.1f} cm, max {r.loc_max_m * 100:.1f} cm, heading '
+                     f'{r.loc_yaw_mean_deg:.1f} deg  (AMCL vs ground truth, {r.loc_samples} samples)')
     if r.failures_by_code:
         lines.append('failures by code     ' + ', '.join(
             f'{code}: {n}' for code, n in sorted(r.failures_by_code.items())))

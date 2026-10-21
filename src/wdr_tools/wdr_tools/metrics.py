@@ -23,6 +23,16 @@ from rosidl_runtime_py.utilities import get_message
 from wdr_tools.metrics_core import compute_report, docking_windows, format_report
 
 TOPICS = ['/wdr/order_events', '/odom', '/scan', '/battery_state']
+# Only in Gazebo runs: AMCL's estimate and Gazebo's true pose, for the localization error
+OPTIONAL_TOPICS = ['/amcl_pose', '/ground_truth/odom']
+
+
+def stamp_s(stamp):
+    return stamp.sec + stamp.nanosec * 1e-9
+
+
+def yaw_of(q):
+    return math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z))
 
 
 def read_bag(path):
@@ -33,13 +43,14 @@ def read_bag(path):
     reader.open(rosbag2_py.StorageOptions(uri=path, storage_id=storage),
                 rosbag2_py.ConverterOptions('cdr', 'cdr'))
     types = {t.name: t.type for t in reader.get_all_topics_and_types()}
-    reader.set_filter(rosbag2_py.StorageFilter(topics=[t for t in TOPICS if t in types]))
-    msg_types = {name: get_message(types[name]) for name in TOPICS if name in types}
+    wanted = [t for t in TOPICS + OPTIONAL_TOPICS if t in types]
+    reader.set_filter(rosbag2_py.StorageFilter(topics=wanted))
+    msg_types = {name: get_message(types[name]) for name in wanted}
 
     # Times come from the bag's receive timestamps, not the message headers: one clock for
     # every topic (sim time when recorded with --use-sim-time), and no zero stamps from
     # messages published before /clock started.
-    events, odom, scan_min, battery = [], [], [], []
+    events, odom, scan_min, battery, estimate, truth = [], [], [], [], [], []
     while reader.has_next():
         topic, data, t_ns = reader.read_next()
         t = t_ns * 1e-9
@@ -54,8 +65,14 @@ def read_bag(path):
             scan_min.append((t, min(valid) if valid else None))
         elif topic == '/battery_state':
             battery.append((t, msg.percentage))
+        elif topic in ('/amcl_pose', '/ground_truth/odom'):
+            # Paired by message stamp: both come from the simulation clock, and AMCL's
+            # estimate refers to the scan time in its header, not to when it was received.
+            p = msg.pose.pose
+            sample = (stamp_s(msg.header.stamp), p.position.x, p.position.y, yaw_of(p.orientation))
+            (estimate if topic == '/amcl_pose' else truth).append(sample)
     missing = [t for t in TOPICS if t not in types]
-    return events, odom, scan_min, battery, missing
+    return events, odom, scan_min, battery, missing, estimate, truth
 
 
 def main(argv=None):
@@ -68,11 +85,12 @@ def main(argv=None):
     if not os.path.isdir(args.bag):
         print(f'{args.bag} is not a bag directory', file=sys.stderr)
         return 2
-    events, odom, scan_min, battery, missing = read_bag(args.bag)
+    events, odom, scan_min, battery, missing, estimate, truth = read_bag(args.bag)
     if missing:
         print('note: topics not in the bag: ' + ', '.join(missing), file=sys.stderr)
     report = compute_report(events, odom, scan_min, battery, near_miss_m=args.near_miss,
-                            ignore_windows=docking_windows(events))
+                            ignore_windows=docking_windows(events), estimate=estimate,
+                            truth=truth)
     if args.json:
         print(json.dumps(dataclasses.asdict(report), indent=2))
     else:

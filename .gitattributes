@@ -3,3 +3,4 @@
 *.png binary
 *.mcap binary
 *.db3 binary
+*.bat text eol=crlf

@@ -79,6 +79,22 @@ def test_docking_is_not_a_near_miss():
     assert r.near_misses == 1  # only the one at t=170 counts
 
 
+def test_localization_error_pairs_nearest_ground_truth():
+    from wdr_tools.metrics_core import localization_errors, percentile
+    truth = [(t * 0.05, t * 0.05, 0.0, 0.0) for t in range(100)]       # moving at 1 m/s along x
+    estimate = [(1.0, 1.03, 0.04, 0.1), (2.0, 2.0, 0.0, 0.0), (9.0, 0.0, 0.0, 0.0)]
+    errs = localization_errors(estimate, truth)
+    assert len(errs) == 2                  # the t=9 estimate has no ground truth within 0.1 s
+    assert errs[0][0] == pytest.approx(0.05)
+    assert errs[0][1] == pytest.approx(0.1)
+    assert errs[1][0] == pytest.approx(0.0)
+    assert percentile([1, 2, 3, 4, 5], 50) == 3
+    assert percentile([0.0, 10.0], 95) == pytest.approx(9.5)
+    r = compute_report([], [], [], [], estimate=estimate, truth=truth)
+    assert r.loc_samples == 2 and r.loc_max_m == pytest.approx(0.05)
+    assert 'localization error' in format_report(r)
+
+
 def test_empty_run():
     r = compute_report([], [], [], [])
     assert r.orders_total == 0 and r.success_rate == 0.0 and r.mean_order_time_s is None
@@ -128,7 +144,7 @@ def test_bag_round_trip(tmp_path):
     write('/battery_state', b, 1)
     del writer  # closes the bag
 
-    events, odom, scan_min, battery, missing = read_bag(uri)
+    events, odom, scan_min, battery, missing, estimate, truth = read_bag(uri)
     assert missing == []
     r = compute_report(events, odom, scan_min, battery)
     assert r.delivered == 1 and r.success_rate == 1.0

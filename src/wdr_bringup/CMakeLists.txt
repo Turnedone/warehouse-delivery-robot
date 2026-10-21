@@ -4,7 +4,7 @@ project(wdr_bringup)
 find_package(ament_cmake REQUIRED)
 
 install(DIRECTORY launch config maps worlds urdf rviz DESTINATION share/${PROJECT_NAME})
-install(PROGRAMS scripts/generate_warehouse.py scripts/initial_pose_publisher.py
+install(PROGRAMS scripts/generate_warehouse.py scripts/initial_pose_publisher.py scripts/demo_headless.sh
   DESTINATION lib/${PROJECT_NAME})
 
 if(BUILD_TESTING)

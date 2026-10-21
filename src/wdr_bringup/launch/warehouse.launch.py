@@ -28,7 +28,7 @@ RECORDED_TOPICS = [
     '/wdr/order_events', '/battery_state', '/odom', '/scan', '/tf', '/tf_static', '/cmd_vel',
     '/speed_limit', '/collision_monitor_state', '/plan', '/amcl_pose', '/wdr/obstacles',
     '/navigate_to_pose/_action/status', '/deliver_order/_action/status',
-    '/dock_robot/_action/status', '/robot_description', '/map',
+    '/dock_robot/_action/status', '/robot_description', '/map', '/ground_truth/odom',
 ]
 
 
@@ -68,8 +68,11 @@ def launch_setup(context):
             Node(package='robot_state_publisher', executable='robot_state_publisher',
                  parameters=[{'use_sim_time': False, 'robot_description': robot_description}],
                  output='screen'),
+            # respawn: the simulator exits if base_link is not in TF yet when it starts (a race
+            # with robot_state_publisher, seen in local runs); a restart a second later
+            # finds it.
             Node(package='nav2_loopback_sim', executable='loopback_simulator',
-                 name='loopback_simulator', output='screen',
+                 name='loopback_simulator', output='screen', respawn=True, respawn_delay=1.0,
                  parameters=[os.path.join(bringup, 'config', 'nav2_params.yaml'),
                              {'use_sim_time': False, 'publish_clock': False}]),
             include('navigation.launch.py', localization='none', use_sim_time=sim_time,

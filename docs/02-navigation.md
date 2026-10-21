@@ -88,8 +88,16 @@ The last safety layer between the controller and the wheels, independent of the 
 
 ## Verified behaviour (Gazebo, AMCL)
 
-Four goals across the warehouse: all reached with 2–18 cm final error, speed limits of 40 % and
-50 % applied in the two slow zones, no sample inside a keep-out zone.
+- **Localization accuracy against ground truth.** Gazebo publishes the robot's true pose on
+  `/ground_truth/odom` (evaluation only, nothing navigates with it), and the metrics report pairs
+  every `/amcl_pose` estimate with the true pose nearest in time. Over a 9-minute delivery run with
+  moving obstacles (981 estimates): **mean 9.0 cm, 95th percentile 15.8 cm, maximum 20.5 cm,
+  heading 1.1°**. The error is the same standing still (9.6 cm) as at full speed (9.2 cm), so it is
+  not a timing artefact, and only ~2.5 cm of it is a constant offset (half a map cell).
+- **Goals.** Four goals across the warehouse reached with 2–18 cm error *as AMCL saw it* (the
+  distance between the goal and AMCL's own estimate, which says nothing about AMCL's own error; the
+  ground-truth figure above does).
+- Speed limits of 40 % and 50 % applied in the two slow zones; no sample inside a keep-out zone.
 
 ## Things a production setup would add
 
